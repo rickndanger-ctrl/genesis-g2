@@ -1,4 +1,29 @@
-# Genesis G2 0.2.0 validation
+# Genesis G2 0.3.0 validation
+
+Date: 2026-11-14 (PST). Native companion: 0.2.1 / build 17. Target Mac: Mini 2.
+
+## Built, installed, and published
+
+- 123 frontend tests passed, including bounded conversation history, latest user visibility, separate draft paging, stale target/owner rejection, literal boolean display acknowledgments, and layout geometry. TypeScript and Vite production build passed.
+- 27 HTTP bridge tests and 86 read-only Codex reader checks passed. The reader's bounded scan now finds the latest user message even when hundreds of intervening tool events appear. It excludes private scaffolding, tool output, and hidden reasoning, preserves exact current-account targeting, and never sends or resumes a thread.
+- A live authenticated read of this long conversation returned the exact requested target and six messages, including a user message, in 422 ms. Only roles, lengths, timing, and target equality were recorded. The dedicated bridge reports 0.3.0; the deployed reader SHA-256 is `743301c00dd5601bd3f79ee97323ce475273604a879859388b13eb9779d5f38e`.
+- Native 0.2.1 / build 17 installed in place and independently queried on the intended iPhone 17 Pro and iPad (A16). Native app executable SHA-256 is `0b496b4ee4c7a8900efc060b5a42ffae2dda4d4a813e49be34392427e3bd8924`. The other paired iPhone was not changed. Existing mappings and drafts were preserved.
+- The native exact-duplicate-slot regression fails before the repair and passes afterward; 26 targeted Codex/Claude checks passed. The Conversation/Draft follow-panel UI check passed on iPhone. Build-15 speech implementation remains unchanged.
+- The isolated browser fixture verified role-labeled history above a separate composer, draft tail and older-draft paging without replacing history, and full “Draft, not sent” status. The fixture cannot execute desktop commands. Local screenshot: `.local/conversation-v030-preview.jpg`. This verifies the preview, not optical readability on G2.
+- Official package `com.pybird.genesisg2` 0.3.0: 61,621 bytes; SHA-256 `92a57dbaf50622e89d812d4bf1288d3e8928cd4009fcf7dcb720885cbf10e473`; SDK 0.0.16; minimum Even app 2.2.10. Package-input scans found neither private pairing token. No conversation content is included.
+- The existing authorized private testing group remains one person. Even Hub visibly confirms **Beta build v0.3.0 Published**. Local publication screenshot: `.local/beta-v030-proof.jpg`. The intermediate 0.2.1 package remains private, superseded by 0.3.0. Home's package was not changed.
+- Accepted rollback tags retained: G2 `g2-follow-0.2.0-accepted` and native `g2-follow-build16-accepted`. The previous reader binary is retained locally.
+
+## Pending physical acceptance for 0.3.0
+
+- Install/open the updated Even Beta and reconnect the glasses. Re-enable the opt-in background relay for same-iPhone use.
+- Confirm the new YOU / CODEX conversation and separate draft box are readable on G2; page through longer conversation and draft text using the native controller.
+- Initial switching, dictation review, explicit Send once, and same-iPhone background control were accepted on 0.2.0 below. Do not treat those as optical acceptance of the new layout.
+- Full Even restart, a five-minute locked relay-phone test with the iPad as controller, and long-duration reliability remain unverified. Claude reply reading is still explicitly unavailable.
+
+---
+
+# Genesis G2 0.2.0 validation (historical)
 
 Date: 2026-11-14. Native companion build: 16 (0.2.0). Target Mac: Mini 2.
 
@@ -14,9 +39,9 @@ Date: 2026-11-14. Native companion build: 16 (0.2.0). Target Mac: Mini 2.
 
 ## Pending current version acceptance
 
-- Real iPad native controls with Even foreground on iPhone: exact chat, draft/review, explicit Send, reply and page updates on G2.
-- Even Beta installation on the phone; actual packaged origin and pairing persistence.
-- Same-iPhone native Genesis foreground while Even remains active in the background.
+- Real iPad paging of a longer reply on G2. Chat switching, draft/review, and explicit Send are now user-confirmed; an earlier delayed update still needs observation under repeated use.
+- Pairing and the packaged origin surviving a complete Even restart. The initial Beta installation and connection are confirmed below.
+- Repeated-use reliability of same-iPhone native Genesis with Even in the background; the initial working flow is now user-confirmed below.
 - Five-minute locked-phone relay test while the iPad retains native ownership. Locking the controller itself intentionally releases Follow.
 
 No new physical G2 result is implied by the tests above. Earlier hardware acceptance below applies to the independent G2 reader path.
@@ -74,4 +99,18 @@ The user confirmed Genesis G2 was opened inside the Even app and reported the Ma
 
 ### Installed Beta connection
 
-The user confirmed Genesis G2 0.2.0 was installed and opened in Even. Its packaged WebView retained the Genesis pairing but emitted Origin `http://127.0.0.1:65028`; the existing exact-origin check rejected its preflights. Only that observed origin was added to the private configuration, with no wildcard/null origins or bearer changes. After restarting the dedicated G2 service, its authenticated follow/reply/feedback requests returned 200. Real Even transport reported successful display ACKs, and the iPad-owned current revision received matching connected feedback. Continued polls and fresh ACKs remained active afterward. Visual chat-switching confirmation and background acceptance are still pending.
+The user confirmed Genesis G2 0.2.0 was installed and opened in Even. Its packaged WebView retained the Genesis pairing but emitted Origin `http://127.0.0.1:65028`; the existing exact-origin check rejected its preflights. Only that observed origin was added to the private configuration, with no wildcard/null origins or bearer changes. After restarting the dedicated G2 service, its authenticated follow/reply/feedback requests returned 200. Real Even transport reported successful display ACKs, and the iPad-owned current revision received matching connected feedback. Continued polls and fresh ACKs remained active afterward.
+
+During native A1/A2 testing, the user first reported one switch, then clarified that the Mac changed while the glasses stayed behind. The user subsequently reported "It just worked again" and "Now it's working" without another installation or service restart. Count current native-to-glasses chat switching as user-confirmed, but retain the intermittent delay as unresolved reliability evidence. Footer keepalive ACKs alone do not prove a changed reply was physically displayed.
+
+The user then confirmed that dictation from the native iPad appeared on G2 and remained after release for review. After personally tapping Send draft once, the user confirmed one message in the selected Mac chat and the glasses returning to the reply. Those checks used build 16 and the installed 0.2.0 Beta. Longer-reply paging and background acceptance remain pending.
+
+### Same-iPhone native control
+
+The user enabled the installed Beta's explicit background-relay option. The first attempt changed the Mac but not the glasses; the live session still belonged to the iPad, so that was not valid evidence of a background relay failure. After turning off Follow on the iPad and enabling it on the iPhone, the user confirmed "This iPhone controls the display," then "Now it works." The user further confirmed that the latter message was sent through the controller-and-glasses flow. Initial same-iPhone control with the native app foreground and Even background is accepted. This does not establish locked-phone relay or long-duration reliability.
+
+### Intermediate 0.2.1 hardening (superseded by 0.3.0 above)
+
+- Native build 17 preserves the exact tapped slot when multiple slots map to the same chat. The regression failed before the repair; 26 targeted Codex/Claude checks pass afterward. The signed native Release build passes. This is separate from the earlier intermittent display delay.
+- G2 rebuild and text-update results now require literal boolean success, matching the documented SDK contract. Numeric-only diagnostics retain raw result type/code without payload text. 98 frontend checks, TypeScript/build, and 24 bridge checks pass.
+- Prepared package: `com.pybird.genesisg2` 0.2.1, 59,862 bytes, SHA-256 `405e4a433648c8e76ef845a9b6dab5a5474e5ec28fbcc808caa4d35321ab648d`. Package inputs contain neither private token.

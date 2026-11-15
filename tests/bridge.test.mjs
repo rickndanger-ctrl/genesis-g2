@@ -271,6 +271,34 @@ test('progress and final messages with identical text have distinct revisions',a
   }
   assert.notEqual(revisions[0],revisions[1]);
 });
+test('conversation exposes only bounded user and assistant fields without executing commands',async t=>{
+  const turns=[{role:'user',text:'The actual request',phase:'final_answer',metadata:{private:'not exposed'}},
+    {role:'assistant',text:'The actual reply',phase:'commentary',truncated:true,toolCall:'not exposed'}];
+  const {request,commands}=await fixture(t,{reader:async value=>({ok:true,provider:'codex',threadId:value,
+    reply:{text:'The actual reply',phase:'commentary'},turns,turnsTruncated:true})});
+  const data=await(await request('/api/reply?provider=codex&chatID='+id)).json();
+  assert.deepEqual(data.turns,[{role:'user',text:'The actual request'},{role:'assistant',text:'The actual reply',phase:'commentary',truncated:true}]);
+  assert.equal(data.turnsTruncated,true);assert.equal(data.status,'unknown');assert.equal(commands.length,0);
+});
+test('conversation rejects non-display roles and oversized excerpts',async t=>{
+  const cases=[...['system','developer','tool','reasoning'].map(role=>[{role,text:'not exposed'}]),
+    [{role:'user',text:'x'.repeat(16001)}],Array.from({length:7},()=>({role:'user',text:'x'})),[{role:'user',text:{private:'not exposed'}}]];
+  for(const turns of cases){
+    const {request}=await fixture(t,{reader:async value=>({ok:true,provider:'codex',threadId:value,reply:{text:'Reply'},turns})});
+    const response=await request('/api/reply?provider=codex&chatID='+id);assert.equal(response.status,502);
+    assert.equal((await response.text()).includes('not exposed'),false);
+  }
+});
+test('a new user message changes revision even before the assistant replies',async t=>{
+  const revisions=[];
+  for(const prompt of ['First request','New request']){
+    const {request}=await fixture(t,{reader:async value=>({ok:true,provider:'codex',threadId:value,state:'unknown',
+      reply:{text:'Existing final',phase:'final_answer'},turns:[{role:'assistant',text:'Existing final',phase:'final_answer'},{role:'user',text:prompt}]})});
+    const data=await(await request('/api/reply?provider=codex&chatID='+id)).json();revisions.push(data.revision);
+    assert.equal(data.status,'unknown');assert.equal(data.turns.at(-1).role,'user');
+  }
+  assert.notEqual(revisions[0],revisions[1]);
+});
 test('two streaming request bodies cannot open competing chats concurrently',async t=>{
   const {base,commands}=await fixture(t,{commandDelay:50});
   const endings=[];

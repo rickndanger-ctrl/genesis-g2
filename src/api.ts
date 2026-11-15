@@ -1,4 +1,4 @@
-import type { Chat, DisplayState, FollowFeedback, FollowSnapshot, Gateway, Host, HostStatus, OpenResult, Provider, Reply, Slot } from './types';
+import type { Chat, ConversationTurn, DisplayState, FollowFeedback, FollowSnapshot, Gateway, Host, HostStatus, OpenResult, Provider, Reply, Slot } from './types';
 
 export class GatewayError extends Error {
   constructor(public code: string, message: string) { super(message); }
@@ -34,6 +34,17 @@ const integer = (value: unknown, max: number): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > max) throw new GatewayError('invalid_response', 'The native controller returned invalid display state.');
   return value;
 };
+export function conversationValue(value: unknown): ConversationTurn[] {
+  let total = 0;
+  return array(value, 6).map(raw => {
+    const turn = object(raw);
+    if (turn.role !== 'user' && turn.role !== 'assistant') throw new GatewayError('invalid_response', 'The bridge returned an unsupported conversation role.');
+    const text = string(turn.text, 32000); total += Array.from(text).length;
+    if (total > 16000) throw new GatewayError('invalid_response', 'The conversation excerpt is too large.');
+    const phase = turn.role === 'assistant' && typeof turn.phase === 'string' && ['final_answer', 'partial_answer', 'commentary', 'unknown'].includes(turn.phase) ? turn.phase as ConversationTurn['phase'] : undefined;
+    return { role: turn.role, text, ...(phase ? { phase } : {}), ...(turn.truncated === true ? { truncated: true } : {}) };
+  });
+}
 export function followValue(raw: unknown): FollowSnapshot {
   const d = object(raw);
   if (d.version !== 1 || typeof d.active !== 'boolean') throw new GatewayError('invalid_response', 'This display session is not supported.');
@@ -117,7 +128,7 @@ export class HTTPGateway implements Gateway {
   }
   async reply(host: Host, provider: Provider, chatID: string, signal: AbortSignal): Promise<Reply> {
     const d = await this.request(host, `/api/reply?provider=${provider}&chatID=${encodeURIComponent(chatID)}`, signal);
-    return { provider: providerValue(d.provider), chatID: string(d.chatID, 500), title: string(d.title, 2000), text: string(d.text), revision: string(d.revision, 200), updatedAt: d.updatedAt == null ? null : string(d.updatedAt, 200), status: ['working', 'done', 'idle'].includes(String(d.status)) ? d.status as Reply['status'] : 'unknown', truncated: boolean(d.truncated), phase: ['final_answer', 'partial_answer', 'commentary'].includes(String(d.phase)) ? d.phase as Reply['phase'] : 'unknown' };
+    return { provider: providerValue(d.provider), chatID: string(d.chatID, 500), title: string(d.title, 2000), text: string(d.text), revision: string(d.revision, 200), updatedAt: d.updatedAt == null ? null : string(d.updatedAt, 200), status: ['working', 'done', 'idle'].includes(String(d.status)) ? d.status as Reply['status'] : 'unknown', truncated: boolean(d.truncated), phase: ['final_answer', 'partial_answer', 'commentary'].includes(String(d.phase)) ? d.phase as Reply['phase'] : 'unknown', ...(d.turns === undefined ? {} : { turns: conversationValue(d.turns), turnsTruncated: d.turnsTruncated === true }) };
   }
   async follow(host: Host, signal: AbortSignal): Promise<FollowSnapshot> {
     return followValue(await this.request(host, '/api/follow', signal));

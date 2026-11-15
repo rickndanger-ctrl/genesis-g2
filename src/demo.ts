@@ -9,7 +9,13 @@ export class DemoGateway implements Gateway {
   async chats(_host: Host, provider: Provider) { return { provider, chats: titles.map((title, i) => ({ id: `demo-${i + 1}`, title })) }; }
   async open(_host: Host, _provider: Provider, chat: { id: string; title: string }) { return { ok: true as const, chat, status: 'requested' as const }; }
   async reply(_host: Host, provider: Provider, chatID: string): Promise<Reply> {
-    return { provider, chatID, title: titles[Number(chatID.split('-')[1]) - 1] ?? titles[0], revision: 'demo-1', updatedAt: null, status: 'done', truncated: false,
-      text: 'This is a sample reply, not a live conversation.\n\nGenesis G2 puts your computers, agents, and chats within a glance. Choose a slot, read its latest response, and swipe through longer replies. Double-tap to return to the chat list.\n\nThe phone keeps your familiar six colors. On the glasses, clear slot numbers and a quiet green layout keep the same conversations easy to find.\n\nPair a Genesis bridge to replace this preview with your own chats. This first version opens chats and reads replies. It does not record, send messages, or change your existing controller mappings.' };
+    const turns = [
+      { role: 'user' as const, text: 'Sample question: can I talk on my iPad while reading here?' },
+      { role: 'assistant' as const, text: 'Yes. Native Genesis handles Talk and Send. G2 follows the selected Codex conversation and keeps your current draft in the bottom composer.', phase: 'final_answer' as const },
+      { role: 'user' as const, text: 'Sample question: how do I see older messages?' },
+      { role: 'assistant' as const, text: 'The latest page appears first. Move to Older pages to review this recent conversation. In native Follow, choose Reply to page the conversation or Draft to review every word before you send. These are sample messages; nothing is connected or sent.', phase: 'final_answer' as const },
+    ];
+    return { provider, chatID, title: titles[Number(chatID.split('-')[1]) - 1] ?? titles[0], revision: 'demo-conversation-1', updatedAt: null, status: 'done', truncated: false, phase: 'final_answer', turns,
+      text: turns[turns.length - 1].text };
   }
 }

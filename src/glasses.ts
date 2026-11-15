@@ -1,13 +1,13 @@
 import { CreateStartUpPageContainer, ListContainerProperty, ListItemContainerProperty, MenuContainerProperty, MenuItemProperty, OsEventTypeList, RebuildPageContainer, TextContainerProperty, TextContainerUpgrade, waitForEvenAppBridge } from '@evenrealities/even_hub_sdk';
 import type { EvenAppBridge, EvenHubEvent } from '@evenrealities/even_hub_sdk';
-import { replyPages, truncateUTF8 } from './pagination';
+import { replyConversation, shortLine, truncateUTF8 } from './pagination';
 import { ControllerStore, type State, type View } from './store';
 import { providerName, slotName } from './types';
-import type { DiagnosticRecorder } from './diagnostics';
+import type { DiagnosticData, DiagnosticRecorder } from './diagnostics';
 import { followPresentation } from './follow';
 import type { FollowFeedback } from './types';
 
-export type GlassesFrame = { kind: 'list' | 'text'; title: string; content: string; footer: string; items: string[]; context: string; following?: boolean; feedback?: { payload: FollowFeedback; hostID: string; sourceID: string } };
+export type GlassesFrame = { kind: 'list' | 'text'; title: string; content: string; footer: string; items: string[]; context: string; composer?: string; following?: boolean; feedback?: { payload: FollowFeedback; hostID: string; sourceID: string } };
 export function shortHeading(value: string, max = 42): string {
   let used = 0; let title = '';
   for (const char of value) {
@@ -19,7 +19,7 @@ export function shortHeading(value: string, max = 42): string {
 }
 export function glassesFrame(state: State, hostName: string): GlassesFrame {
   const follow = followPresentation(state);
-  if (follow) return { kind: 'text', title: follow.title, content: follow.content, footer: follow.footer, context: follow.context, items: [], following: true, ...(follow.feedback ? { feedback: follow.feedback } : {}) };
+  if (follow) return { kind: 'text', title: follow.title, content: follow.content, composer: follow.composer, footer: follow.footer, context: follow.context, items: [], following: true, ...(follow.feedback ? { feedback: follow.feedback } : {}) };
   const prefix = state.demo ? 'DEMO / ' : '';
   const title = `${prefix}${hostName} / ${providerName(state.provider)}`;
   const targets = state.view === 'slots' ? state.slots.map(s => `${s.slot}:${s.kind}:${s.chatID ?? ''}`).join('|') : state.view === 'hosts' ? state.hosts.map(h => h.id).join('|') : '';
@@ -32,11 +32,11 @@ export function glassesFrame(state: State, hostName: string): GlassesFrame {
   if (state.view === 'hosts') return { kind: 'list', title: `${prefix}Choose computer`, content: '', footer: 'Swipe: choose  |  Tap: connect', items: state.hosts.length ? state.hosts.map(h => truncateUTF8(h.name, 63)) : ['Pair a computer on your phone'], context };
   if (state.view === 'providers') return { kind: 'list', title: `${prefix}Choose agent`, content: '', footer: 'Swipe: choose  |  Tap: select', items: ['Codex', 'Claude'], context };
   if (state.view === 'reader') {
-    const pages = replyPages(state.reply?.text ?? (state.busy ? 'Opening chat…' : ''));
+    const conversation = replyConversation(state.reply); const pages = state.reply ? conversation.pages : [state.busy ? 'Opening chat…' : 'No conversation text is available yet.'];
     const page = Math.min(state.page, pages.length - 1);
     const slot = state.selectedSlot ? `${slotName(state.provider, state.selectedSlot)} / ` : '';
-    const phase = state.reply?.phase === 'commentary' ? 'Progress' : state.reply?.phase === 'partial_answer' ? 'Partial' : 'Reply';
-    return { kind: 'text', title: `${prefix}${slot}${state.selected?.title ?? 'Latest reply'}`, content: pages[page], footer: `${phase} ${page + 1}/${pages.length}  Swipe: page | Double tap: chats${state.reply?.truncated ? ' (excerpt)' : ''}`, items: [], context };
+    const label = conversation.replyOnly ? 'Reply only' : conversation.truncated ? 'Recent excerpt' : 'Conversation';
+    return { kind: 'text', title: `${prefix}${slot}${state.selected?.title ?? 'Conversation'}`, content: pages[page], composer: 'YOU > Use Genesis to write\n      Glasses controls read only.', footer: shortLine(`${label} · ${page === 0 ? 'Latest' : 'Older'} ${page + 1}/${pages.length}`, 42), items: [], context: `${context}:conversation` };
   }
   return { kind: 'list', title, content: '', footer: state.busy ? 'Loading chats…' : 'Swipe: choose  |  Tap: open  |  Menu: more', items: state.slots.map(s => truncateUTF8(`${slotName(state.provider, s.slot)}  ${s.label}${s.kind === 'shortcut' ? ' [shortcut]' : ''}`, 63)), context };
 }
@@ -73,13 +73,23 @@ export interface GlassesPort {
   rebuildPageContainer(page: RebuildPageContainer): Promise<boolean>;
   textContainerUpgrade(page: TextContainerUpgrade): Promise<boolean>;
 }
-type ContainerIDs = { heading: number; body: number; footer: number };
+// The SDK's boolean methods currently pass native values through without runtime
+// validation. Record their type/code without retaining strings or object data.
+// status: null0, boolean1, number2, string3, object4, undefined5, other6.
+export function acknowledgmentData(value: unknown): DiagnosticData {
+  const status = value === null ? 0 : ({ boolean: 1, number: 2, string: 3, object: 4, undefined: 5 } as Record<string, number>)[typeof value] ?? 6;
+  const reason = typeof value === 'boolean' ? Number(value) : typeof value === 'number' && Number.isInteger(value) && value >= -1 && value <= 2147483647 ? value : -1;
+  return { status, reason };
+}
+type ContainerIDs = { heading: number; body: number; footer: number; composer: number };
 const text = (id: number, name: string, y: number, height: number, content: string, capture = 0) => new TextContainerProperty({ containerID: id, containerName: name, xPosition: 8, yPosition: y, width: 560, height, content: truncateUTF8(content, 999), isEventCapture: capture, textColor: name === 'footer' ? 2 : 4, paddingLength: 0 });
-export function pageFor(frame: GlassesFrame, ids: ContainerIDs = { heading: 1, body: 2, footer: 3 }): CreateStartUpPageContainer {
-  const textObject = [text(ids.heading, 'heading', 6, 36, truncateUTF8(shortHeading(frame.title), 120)), text(ids.footer, 'footer', 256, 28, truncateUTF8(frame.footer, 95))];
+export function pageFor(frame: GlassesFrame, ids: ContainerIDs = { heading: 1, body: 2, footer: 3, composer: 4 }): CreateStartUpPageContainer {
+  const conversation = frame.composer !== undefined;
+  const textObject = [text(ids.heading, 'heading', conversation ? 4 : 6, conversation ? 28 : 36, truncateUTF8(shortHeading(frame.title), 120)), text(ids.footer, 'footer', conversation ? 192 : 256, conversation ? 22 : 28, truncateUTF8(frame.footer, 95))];
   const listObject = [];
-  if (frame.kind === 'text') textObject.push(text(ids.body, 'body', 48, 202, frame.content, 1));
+  if (frame.kind === 'text') textObject.push(text(ids.body, 'body', conversation ? 38 : 48, conversation ? 148 : 202, frame.content, 1));
   else listObject.push(new ListContainerProperty({ containerID: ids.body, containerName: 'choices', xPosition: 8, yPosition: 48, width: 560, height: 202, isEventCapture: 1, borderWidth: 0, paddingLength: 2, itemContainer: new ListItemContainerProperty({ itemCount: frame.items.length, itemWidth: 550, isItemSelectBorderEn: 1, itemName: frame.items }) }));
+  if (conversation) textObject.push(new TextContainerProperty({ containerID: ids.composer, containerName: 'composer', xPosition: 8, yPosition: 218, width: 560, height: 66, content: truncateUTF8(frame.composer!, 999), borderWidth: 1, borderColor: 4, borderRadius: 4, paddingLength: 4, textColor: 4, isEventCapture: 0 }));
   return new CreateStartUpPageContainer({ containerTotalNum: textObject.length + listObject.length, textObject, listObject,
     menuObject: new MenuContainerProperty({ menuItems: frame.following ? [new MenuItemProperty({ itemID: 4, itemName: 'Refresh display' })] : [new MenuItemProperty({ itemID: 1, itemName: 'Chats' }), new MenuItemProperty({ itemID: 2, itemName: 'Computers' }), new MenuItemProperty({ itemID: 3, itemName: 'Agents' }), new MenuItemProperty({ itemID: 4, itemName: 'Refresh' })] }) });
 }
@@ -95,7 +105,7 @@ export class GlassesRenderer {
   private verifyPending = false;
   private lifecycle = 0;
   private serial = 0;
-  private ids: ContainerIDs = { heading: 1, body: 2, footer: 3 };
+  private ids: ContainerIDs = { heading: 1, body: 2, footer: 3, composer: 4 };
   private target: { context: string; kind: GlassesFrame['kind']; containerID: number } | null = null;
   get inputTarget() { return this.target; }
   get busy() { return this.rendering; }
@@ -120,40 +130,42 @@ export class GlassesRenderer {
         const verify = this.verifyPending; this.verifyPending = false;
         const force = this.forceRebuild; this.forceRebuild = false;
         if (!force && !verify && JSON.stringify(frame) === JSON.stringify(this.last)) continue;
-        if (force || !this.last || this.last.context !== frame.context || this.last.kind !== frame.kind) {
-          const base = ++this.serial * 3;
-          this.ids = { heading: base, body: base + 1, footer: base + 2 };
+        const layoutChanged = (this.last?.composer === undefined) !== (frame.composer === undefined);
+        if (force || !this.last || this.last.context !== frame.context || this.last.kind !== frame.kind || layoutChanged) {
+          const base = ++this.serial * 4;
+          this.ids = { heading: base, body: base + 1, footer: base + 2, composer: base + 3 };
           this.target = null;
         }
         if (!this.created) {
           const result = await bounded(this.port.createStartUpPageContainer(pageFor(frame, this.ids)), 8000);
-          this.diagnostic('page_ack', { phase: 1, ack: result, containerID: this.ids.body });
+          this.diagnostic('page_ack', { phase: 1, ack: acknowledgmentData(result).reason, ...acknowledgmentData(result), containerID: this.ids.body });
           if (generation !== this.lifecycle) return;
           if (result === 1) {
             // Developer reloads may leave a page mounted. A single explicit
             // rebuild can recover that case; all other create errors stop.
             const recovered = await bounded(this.port.rebuildPageContainer(new RebuildPageContainer(pageFor(frame, this.ids))), 8000);
-            this.diagnostic('page_ack', { phase: 2, ack: recovered ? 1 : 0, containerID: this.ids.body });
+            this.diagnostic('page_ack', { phase: 2, ack: recovered === true ? 1 : 0, ...acknowledgmentData(recovered), containerID: this.ids.body });
             if (generation !== this.lifecycle) return;
-            if (!recovered) throw new Error();
+            if (recovered !== true) throw new Error();
           } else if (result !== 0) throw new Error();
           this.created = true;
-        } else if (!force && frame.kind === 'text' && this.last?.kind === 'text' && frame.context === this.last.context) {
-          for (const [id, name, content, old] of [[this.ids.heading, 'heading', truncateUTF8(shortHeading(frame.title), 120), truncateUTF8(shortHeading(this.last.title), 120)], [this.ids.body, 'body', frame.content, this.last.content], [this.ids.footer, 'footer', truncateUTF8(frame.footer, 95), truncateUTF8(this.last.footer, 95)]] as const) {
+        } else if (!force && !layoutChanged && frame.kind === 'text' && this.last?.kind === 'text' && frame.context === this.last.context) {
+          for (const [id, name, content, old] of [[this.ids.heading, 'heading', truncateUTF8(shortHeading(frame.title), 120), truncateUTF8(shortHeading(this.last.title), 120)], [this.ids.body, 'body', frame.content, this.last.content], [this.ids.footer, 'footer', truncateUTF8(frame.footer, 95), truncateUTF8(this.last.footer, 95)], [this.ids.composer, 'composer', frame.composer, this.last.composer]] as const) {
+            if (content === undefined) continue;
             // A new controller revision needs a real native ACK even if its
             // visible text is unchanged (for example, a page was clamped).
             if (content !== old || name === 'footer' && (verify || frame.feedback && JSON.stringify(frame.feedback) !== JSON.stringify(this.last.feedback))) {
               const result = await bounded(this.port.textContainerUpgrade(new TextContainerUpgrade({ containerID: id, containerName: name, content })), 8000);
-              this.diagnostic('page_ack', { phase: 3, ack: result ? 1 : 0, containerID: id });
+              this.diagnostic('page_ack', { phase: 3, ack: result === true ? 1 : 0, ...acknowledgmentData(result), containerID: id });
               if (generation !== this.lifecycle) return;
-              if (!result) throw new Error();
+              if (result !== true) throw new Error();
             }
           }
         } else {
           const result = await bounded(this.port.rebuildPageContainer(new RebuildPageContainer(pageFor(frame, this.ids))), 8000);
-          this.diagnostic('page_ack', { phase: 2, ack: result ? 1 : 0, containerID: this.ids.body });
+          this.diagnostic('page_ack', { phase: 2, ack: result === true ? 1 : 0, ...acknowledgmentData(result), containerID: this.ids.body });
           if (generation !== this.lifecycle) return;
-          if (!result) throw new Error();
+          if (result !== true) throw new Error();
         }
         this.last = frame;
         this.target = { context: frame.context, kind: frame.kind, containerID: this.ids.body };
@@ -300,13 +312,13 @@ export class GlassesController {
     }
     if (state.error) { if (gesture.action === 'select') void this.store.refresh(); return; }
     if (gesture.action === 'turn') {
-      if (state.view === 'reader') this.store.turnPage(gesture.delta, replyPages(state.reply?.text ?? '').length);
+      if (state.view === 'reader') this.store.turnPage(gesture.delta, replyConversation(state.reply).pages.length);
       else if (gesture.index !== undefined) this.store.focus(gesture.index, this.count(state.view));
       else this.store.turn(gesture.delta, this.count(state.view));
       return;
     }
     if (gesture.action !== 'select') return;
-    if (state.view === 'reader') { this.store.turnPage(1, replyPages(state.reply?.text ?? '').length); return; }
+    if (state.view === 'reader') { this.store.turnPage(1, replyConversation(state.reply).pages.length); return; }
     const index = gesture.index ?? state.focus;
     if (state.view === 'hosts') { const host = state.hosts[index]; if (host) void this.store.setHost(host.id); }
     else if (state.view === 'providers') { if (index === 0 || index === 1) void this.store.setProvider(index === 0 ? 'codex' : 'claude'); }

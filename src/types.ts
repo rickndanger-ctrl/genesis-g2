@@ -4,7 +4,9 @@ export type Chat = { id: string; title: string };
 export type Slot = { slot: number; label: string; chatID: string | null; kind: 'empty' | 'chat' | 'shortcut'; action?: string };
 export type Availability = { id: Provider; label: string; available: boolean; canReadReply: boolean; reason?: string };
 export type HostStatus = { host: { id: string; name: string }; providers: Availability[]; version: string };
-export type Reply = { provider: Provider; chatID: string; title: string; text: string; revision: string; updatedAt: string | null; status: 'unknown' | 'working' | 'done' | 'idle'; truncated: boolean; phase?: 'final_answer' | 'partial_answer' | 'commentary' | 'unknown' };
+export type ReplyPhase = 'final_answer' | 'partial_answer' | 'commentary' | 'unknown';
+export type ConversationTurn = { role: 'user' | 'assistant'; text: string; phase?: ReplyPhase; truncated?: boolean };
+export type Reply = { provider: Provider; chatID: string; title: string; text: string; revision: string; updatedAt: string | null; status: 'unknown' | 'working' | 'done' | 'idle'; truncated: boolean; phase?: ReplyPhase; turns?: ConversationTurn[]; turnsTruncated?: boolean };
 export type OpenResult = { ok: true; chat: Chat; status: 'requested' | 'confirmed' };
 export type DisplayState = {
   provider: Provider; chatID: string | null; slotIndex: number | null;

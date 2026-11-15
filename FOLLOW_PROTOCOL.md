@@ -1,6 +1,6 @@
 # Genesis G2 native follow contract v1
 
-Implementation target: Genesis G2 0.2.0 and native Genesis build 16. Existing native dictation and `/v1/commands` Send remain authoritative. Display updates never open a chat or send a prompt.
+Implementation target: Genesis G2 0.3.0 and native Genesis build 16 or later. Existing native dictation and `/v1/commands` Send remain authoritative. Display updates never open a chat or send a prompt.
 
 ## Mac companion (existing bearer authentication)
 
@@ -42,3 +42,13 @@ G2 polls while active, including hidden-page operation only in a real Beta build
 Add an explicit Follow this controller switch, owner/takeover affordance, and reply/draft/previous-page/next-page/home/refresh controls. Keep native Hold Talk and explicit Send unchanged; optionally show a dedicated Send button in the follow panel calling the same guarded sendDraft method. Publish after confirmed chat changes. Debounce draft snapshots; serialize all session writes and guard response generation across host/provider changes. Heartbeat every 10 seconds while foreground. Stop/release on disabling, host change, or background; renew only when the user enables/returns to their explicitly selected session. An expired session cannot be silently stolen back from another device. Preserve the build-15 speech implementation, persisted drafts and Send receipt ledger.
 
 The iPad controller + Even foreground on the iPhone is the first physical acceptance setup. Same-iPhone native control requires a real Even Beta install and a background/lock test; do not claim this from the QR preview.
+
+## Conversation view (0.3.0)
+
+`GET /api/reply` retains its existing latest-reply fields and optionally includes `turns`, an oldest-to-newest excerpt of at most six visible messages and 16,000 Unicode scalars in total. A turn has only `role` (`user` or `assistant`), `text`, optional assistant `phase`, and optional `truncated`. `turnsTruncated` marks omitted or clipped history. The reader reserves room for the most recent user and assistant messages. The response revision includes the conversation, so a new user message updates the display before a new assistant reply exists.
+
+The excerpt comes from the exact current-account Codex thread using read-only app-server operations. Tool output, system/developer messages, hidden reasoning, moderated text, attachment metadata, and known transport scaffolding are excluded. Unknown conversation roles or oversized excerpts are rejected by both bridge and client. Older bridges without `turns` remain usable as explicitly labeled latest-reply views.
+
+The glasses display the authoritative conversation separately from the current native draft. A draft is not inserted into chat history before the reader returns a real user message. `queued` remains Queued; it is not a delivery confirmation. An older final answer does not establish that a newer request is complete. The protocol has no separate Sending phase, so the UI must not invent it. No transcript comparison resolves native delivery uncertainty or retries a send.
+
+Reply and Draft select which content the native page controls navigate. Page zero shows the latest content; later pages go toward older text. A draft excerpt can be paged without removing the recent conversation from view. The original complete draft remains on the native controller for review and explicit Send.

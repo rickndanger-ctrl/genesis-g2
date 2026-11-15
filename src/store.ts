@@ -133,7 +133,7 @@ export class ControllerStore {
   async refreshReply() {
     const host = this.host; const selected = this.state.selected;
     if (!host || !selected || this.replyInFlight) return;
-    if (this.state.follow && (this.state.follow.state.view !== 'reply' || this.state.provider !== 'codex')) return;
+    if (this.state.follow && (this.state.follow.state.view === 'home' || this.state.provider !== 'codex')) return;
     if (!this.state.follow && !this.availability?.canReadReply) { this.state.error = this.availability?.reason || 'Chat switching is available. Reading replies for this agent is not connected in this preview.'; this.emit(); return; }
     const route = this.route; const generation = ++this.replyGeneration; const provider = this.state.provider; const signal = this.selection.signal;
     this.replyInFlight = true;
@@ -170,11 +170,18 @@ export class ControllerStore {
     } finally { if (epoch === this.followEpoch) this.followInFlight = false; }
   }
   private applyFollow(session: FollowSession) {
-    const previous = this.state.follow; const target = (s: FollowSession) => `${s.sourceID}:${s.state.provider}:${s.state.chatID ?? ''}:${s.state.view}:${s.state.refreshNonce}`;
+    const previous = this.state.follow; const target = (s: FollowSession) => `${s.sourceID}:${s.state.provider}:${s.state.chatID ?? ''}`;
     const changed = !previous || target(previous) !== target(session);
+    const refreshRequested = Boolean(previous && previous.state.refreshNonce !== session.state.refreshNonce);
+    const paneChanged = Boolean(previous && previous.state.view !== session.state.view);
     if (changed) {
       this.connection.abort(); this.connection = new AbortController(); this.clearSelection(); this.lastFeedback = '';
       if (this.state.provider !== session.state.provider) { this.state.slots = emptySlots(); this.state.chats = []; }
+    }
+    if (!changed && refreshRequested) {
+      // Keep the exact-chat conversation visible while discarding an older read.
+      this.route++; this.selection.abort(); this.selection = new AbortController();
+      this.replyGeneration++; this.replyInFlight = false; this.lastFollowReplyAt = 0; this.state.error = null;
     }
     this.state.follow = session; this.state.followNotice = null; this.state.followEnded = false; this.state.connected = true;
     if (!session.feedback?.connected) this.lastFeedback = '';
@@ -185,7 +192,7 @@ export class ControllerStore {
     if (this.followExpiry) clearTimeout(this.followExpiry);
     this.followExpiry = setTimeout(() => this.expireFollow(), Math.max(0, Date.parse(session.expiresAt) - Date.now()) + 1);
     if (!session.feedback?.connected || !previous || JSON.stringify(previous) !== JSON.stringify(session)) this.emit();
-    if (session.state.view === 'reply' && session.state.provider === 'codex' && (changed || Date.now() - this.lastFollowReplyAt >= 5000)) void this.refreshReply();
+    if (session.state.view !== 'home' && session.state.provider === 'codex' && session.state.chatID && (changed || refreshRequested || paneChanged || Date.now() - this.lastFollowReplyAt >= 2000)) void this.refreshReply();
   }
   expireFollow(now = Date.now()) {
     if (this.state.follow && Date.parse(this.state.follow.expiresAt) <= now) this.endFollow('Native follow expired. Enable Follow this controller in Genesis to reconnect.');

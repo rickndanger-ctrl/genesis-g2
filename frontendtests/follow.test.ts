@@ -94,10 +94,10 @@ describe('display-only follow and standalone isolation', () => {
   });
   it('keeps Claude replies explicitly unavailable, but shows its draft, recording and truthful Send state', async () => {
     const f = fixture(session({ provider: 'claude' })); await f.store.refresh(); await f.store.pollFollow();
-    expect(followPresentation(f.store.state)?.pages.join(' ')).toContain('not connected yet'); expect(f.api.reply).not.toHaveBeenCalled();
+    expect(followPresentation(f.store.state)?.content.replace(/\s+/g, ' ')).toContain('not connected yet'); expect(f.api.reply).not.toHaveBeenCalled();
     f.set(session({ provider: 'claude', view: 'draft', draft: '**Keep my literal words**', recording: true, sendState: 'queued' }, { revision: 2 }));
     await f.store.pollFollow(); const display = followPresentation(f.store.state)!;
-    expect(display.content).toContain('**Keep my literal words**'); expect(display.label).toBe('Recording'); expect(display.receipt).toBe('Send queued'); expect(display.receipt).not.toBe('Sent'); expect(f.api.reply).not.toHaveBeenCalled();
+    expect(display.composer).toContain('**Keep my literal words**'); expect(display.label).toBe('Draft review'); expect(display.status).toBe('Voice input'); expect(display.receipt).toBe('Send queued'); expect(display.receipt).not.toBe('Sent'); expect(f.api.reply).not.toHaveBeenCalled();
     f.set(session({ provider: 'claude', view: 'draft', draft: 'Review me', sendState: 'uncertain' }, { revision: 3 })); await f.store.pollFollow();
     expect(followPresentation(f.store.state)?.receipt).toBe('Send unverified');
   });
@@ -162,7 +162,7 @@ describe('follow races, expiry and page bounds', () => {
     const f = fixture(); await f.store.refresh(); const pending = deferred<Reply>(); vi.mocked(f.api.reply).mockImplementationOnce(() => pending.promise);
     await f.store.pollFollow(); f.set(session({ view: 'draft', draft: 'My current draft', recording: true }, { revision: 2 })); await f.store.pollFollow();
     pending.resolve(reply('one', 'Late assistant response')); await tick();
-    expect(f.store.state.reply).toBeNull(); expect(glassesFrame(f.store.state, host.name).content).toBe('My current draft');
+    expect(f.store.state.reply?.chatID).toBe('one'); const frame = glassesFrame(f.store.state, host.name); expect(frame.content).toContain('CODEX: Late assistant response'); expect(frame.composer).toContain('YOU > My current draft'); expect(frame.composer).not.toContain('assistant');
   });
 });
 

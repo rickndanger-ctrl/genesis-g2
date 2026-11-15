@@ -54,6 +54,21 @@ function cleanChat(row, provider) {
   try { return {id:chatID(row.id,provider),title:safeLabel(row.title,'Untitled chat'),state:safeLabel(row.state,'unknown')}; }
   catch { return null; }
 }
+function cleanConversation(source) {
+  if (source.turns === undefined) return {};
+  if (!Array.isArray(source.turns) || source.turns.length > 6)
+    fault(502,'invalid_response','The conversation excerpt is unsupported.');
+  let total = 0;
+  const turns = source.turns.map(row => {
+    if (!row || typeof row !== 'object' || !['user','assistant'].includes(row.role) || typeof row.text !== 'string')
+      fault(502,'invalid_response','The conversation excerpt is unsupported.');
+    total += Array.from(row.text).length;
+    if (total > 16000) fault(502,'invalid_response','The conversation excerpt is too large.');
+    const phase = row.role === 'assistant' && ['final_answer','partial_answer','commentary','unknown'].includes(row.phase) ? row.phase : undefined;
+    return {role:row.role,text:row.text,...(phase ? {phase} : {}),...(row.truncated === true ? {truncated:true} : {})};
+  });
+  return {turns,turnsTruncated:source.turnsTruncated === true || turns.some(turn=>turn.truncated)};
+}
 async function readJSONBody(request) {
   if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json'))
     fault(415,'json_required','This action requires JSON.');
@@ -185,9 +200,11 @@ export function createBridge(config, dependencies={}) {
       // Keep unknown explicit when the reader could not identify its phase.
       const phase=text.trim() && ['final_answer','partial_answer','commentary','unknown'].includes(source.reply?.phase)
         ? source.reply.phase : undefined;
+      const conversation=cleanConversation(source);
       const value={provider:'codex',chatID:id,title:safeLabel(source.title),text,
         ...(phase ? {phase} : {}),
-        revision:createHash('sha256').update(id+'\n'+text+'\n'+(phase ?? '')).digest('hex').slice(0,20),
+        ...conversation,
+        revision:createHash('sha256').update(id+'\n'+text+'\n'+(phase ?? '')+'\n'+JSON.stringify(conversation)).digest('hex').slice(0,20),
         updatedAt:new Date().toISOString(),status:['working','done','idle'].includes(source.state) ? source.state : 'unknown',
         truncated:characters.length>16000 || source.reply?.truncated===true || source.limited===true};
       replyCache.set(id,{at:Date.now(),value});
@@ -220,7 +237,7 @@ export function createBridge(config, dependencies={}) {
         if (!allowedOrigins.has(origin)) fault(403,'origin_denied','This app origin has not been paired with Genesis G2.');
         cors={'Access-Control-Allow-Origin':origin,'Vary':'Origin'};
       }
-      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.2.0'},cors);
+      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.3.0'},cors);
       if (target.pathname.startsWith('/api/')) {
         if (request.method==='OPTIONS') {
           if (!origin || !['GET','POST'].includes(request.headers['access-control-request-method'])) fault(403,'preflight_denied','This request is not allowed.');
@@ -263,7 +280,7 @@ export function createBridge(config, dependencies={}) {
         }
         if (request.method==='GET' && target.pathname==='/api/status') {
           const source=await hostStatus();
-          return json(response,200,{version:'0.2.0',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
+          return json(response,200,{version:'0.3.0',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
             id:p.id,label:safeLabel(p.name,p.id),available:p.readiness==='ready' && p.capabilities?.includes('openChat')===true,
             canReadReply:p.id==='codex' && p.readiness==='ready',reason:safeLabel(p.reason)
           }))},cors);

@@ -1,15 +1,15 @@
 # Genesis G2
 
-A standalone controller and reply reader for Even Realities G2. It has its own app ID (`com.pybird.genesisg2`), pairing, browser storage, and Mac bridge. It does not replace Home, the Genesis iPhone controller, or Genesis Mini firmware.
+A standalone controller and conversation reader for Even Realities G2. It has its own app ID (`com.pybird.genesisg2`), pairing, browser storage, and Mac bridge. It does not replace Home, the Genesis iPhone controller, or Genesis Mini firmware.
 
-This preview opens existing Codex and Claude chats on a paired Mac and reads the latest Codex assistant response on the glasses. It keeps the six existing slot assignments and colors on the phone; G2 uses monochrome green with A1–A6 / C1–C6 labels. Long responses are split into pages.
+This preview opens existing Codex and Claude chats on a paired Mac. Version 0.3 adds a terminal-style Codex view: recent **YOU** and **CODEX** messages above a separate draft box. It keeps the six existing slot assignments and colors on the phone; G2 uses monochrome green with A1–A6 / C1–C6 labels. Longer text and older messages have separate pages.
 
 ## What is connected
 
 - Existing six-slot profiles and chat lists from the Genesis Mac companion.
 - Codex and Claude chat selection through that companion, with exact chat IDs and mapping checks.
-- A read-only Codex reply reader, including progress versus final-response phase and explicit unknown activity state.
-- Glasses chat list, reply pages, computer/agent menus, and phone preview controls.
+- A read-only Codex conversation reader, with up to six recent visible messages, progress versus final-response phase, and explicit unknown activity state.
+- Glasses chat list, conversation pages, a separate composer, computer/agent menus, and a matching phone preview.
 - Separate private pairing over Tailscale HTTPS. No public tunnel or cloud transcript service.
 
 G2 itself does not capture voice or execute Send. Version 0.2 adds **Follow this controller**: the native Genesis iPhone/iPad app handles dictation, review, and explicit Send using its existing verified route, while G2 displays the selected chat, draft, delivery state, and Codex reply pages. Approvals, shortcut execution, artifact controls, and Claude reply reading remain outside the G2 display preview. A successful Codex open request means the OS accepted the request; the real visible selection still needs device observation.
@@ -25,23 +25,23 @@ The paired iPhone must have Tailscale connected, the Even app, and the G2 connec
 
 The phone's **Explore preview** is explicitly simulated and makes no computer requests. It is useful for exploring the layout, not proof of a live glasses connection.
 
-Developer QR previews can suspend when the iPhone locks or the Even app backgrounds. Genesis G2 0.2.0 is available as a separate private Beta for the authorized tester account. Accept its invitation, then use Even → Me → Beta tester → Genesis G2 → Install. Background operation still requires physical validation; do not infer it from the QR preview or package installation. Never replace the Home package to install Genesis G2.
+Developer QR previews can suspend when the iPhone locks or the Even app backgrounds. Genesis G2 0.3.0 is available as a separate private Beta for the authorized tester account. After accepting the invitation, use Even → Me → Beta tester → Genesis G2 → Install or Update. The conversation layout requires the updated 0.3.0 Mac bridge. Initial same-iPhone native control with Even in the background was physically verified on 0.2.0; the new layout's physical acceptance, locked-phone relay, and long-duration reliability remain pending. Never replace the Home package to install Genesis G2.
 
 ## Use the native controller with G2
 
-Install native Genesis 0.2.0 (build 16) and the updated Mac companion. Keep both apps paired to the same Mac. The first hardware check uses the **iPad** for native controls and the **iPhone** for the Even glasses relay.
+Use native Genesis build 16 or later and the updated Mac companion. Build 17 adds exact duplicate-slot labeling and clearer conversation controls. Keep both apps paired to the same Mac. The simplest setup uses the **iPad** for native controls and the **iPhone** for the Even glasses relay.
 
 1. On the iPhone, open Genesis G2 inside Even and connect the glasses.
 2. On the iPad, open Genesis Controller, choose the same Mac and Codex, then turn on **Follow this controller** below the controller.
 3. Tap an assigned chat. G2 follows only after the normal chat-open receipt, without issuing a second open command.
 4. Hold the native microphone, speak, and release to review. The glasses can show the draft, but only **Send draft** in the native app sends it. A queued receipt is shown as queued, never as confirmed delivery.
-5. Use **Reply**, **Draft**, **Home**, page arrows, and **Refresh** from the native follow panel. A display acknowledgment shows which page the glasses accepted.
+5. Use **Conversation** (**Reply** in build 16), **Draft**, **Home**, page arrows, and **Refresh** from the native follow panel. Conversation pages the recent exchange; Draft pages all words in the bottom draft box. Page 1 is latest, and the right arrow moves toward older text. A display acknowledgment shows which page the glasses accepted.
 
 One native device controls the display at a time. Taking over from another iPhone/iPad is explicit. Leaving the native app or changing computer/agent ends follow; the display lease also expires after 45 seconds without renewal. Transient display drafts are held in memory only, and expiry clears them. Original native drafts and Send receipts retain their existing storage behavior. Turning Follow on keeps that controller's screen awake until Follow stops.
 
 Claude selection, draft preview, and native Send status can follow too. Its reply view explicitly reports that Claude reply reading is not connected. Use **Leave follow** inside Genesis G2 to return to its standalone controls; this does not steal ownership from the native device.
 
-A same-iPhone workflow requires a real Even Beta installation and a background/lock acceptance test. Developer QR success does not establish that. [Follow protocol](FOLLOW_PROTOCOL.md) documents the display-only boundary.
+A same-iPhone workflow requires the installed Even Beta. Inside Genesis G2, enable **Try background relay — Even Beta only**, then open the native Genesis app and enable Follow. Enable this option again after reopening or updating the package; it defaults off. If an iPad still owns the display, either turn its Follow off first, or tap **Take over from iPad**, then **Follow this iPhone**. The native controller must stay open; leaving it intentionally releases Follow. Initial same-phone control is user-confirmed; phone lock is a separate pending test. [Follow protocol](FOLLOW_PROTOCOL.md) documents the display-only boundary.
 
 Installed Even builds may use a loopback WebView origin different from the private QR URL. The first real Beta on this setup used an exact `http://127.0.0.1:<port>` origin. If a freshly installed package cannot connect, inspect the authenticated network diagnostic for its denied origin and add only that observed origin to the private bridge configuration, retaining bearer authentication. Do not use wildcard or opaque-null origins. Restart only the dedicated G2 bridge after a configuration change. Recheck after a full Even restart because the port may change; stability across restarts remains a physical acceptance check. Re-running setup preserves already verified exact origins.
 
@@ -87,7 +87,7 @@ Install the official `@evenrealities/evenhub-cli` if it is not already available
 
 ```sh
 node bridge/package-config.mjs
-evenhub pack .local/app.json dist -o .local/genesis-g2-0.2.0.ehpk --sdk-ver 0.0.16
+evenhub pack .local/app.json dist -o .local/genesis-g2-0.3.0.ehpk --sdk-ver 0.0.16
 ```
 
 `.local`, generated packages, build products, tokens and logs are excluded from Git. The shared `app.json` has an empty network whitelist deliberately; a private package must name its destination explicitly. The package contains no pairing token. Uploading, Beta distribution and public publication are separate from packaging.

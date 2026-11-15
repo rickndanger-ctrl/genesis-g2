@@ -144,7 +144,7 @@ describe('chat route isolation', () => {
   it('keeps the demo network-free and marks phone/glasses output as sample content', async () => {
     const api = fake(); const store = new ControllerStore(api, [host]); await store.setDemo(true); await store.openSlot(1);
     expect(api.status).not.toHaveBeenCalled(); expect(api.open).not.toHaveBeenCalled(); expect(api.reply).not.toHaveBeenCalled();
-    expect(store.state.reply?.text).toContain('sample reply'); expect(glassesFrame(store.state, 'Studio preview').title).toContain('DEMO');
+    expect(store.state.reply?.text).toContain('sample messages'); expect(glassesFrame(store.state, 'Studio preview').title).toContain('DEMO');
   });
 });
 

@@ -1,6 +1,6 @@
 # Genesis G2 0.4.1 automatic recovery
 
-Date: 2026-11-15 (PST). Both Mini bridges are deployed; the private Even Beta is published. Physical restart acceptance is pending below.
+Date: 2026-11-15 (PST). Both Mini bridges are deployed; the private Even Beta is published. Physical restart recovery is confirmed below.
 
 - Implemented native-stored, per-Mac recovery credentials with readback before enrollment. Existing bearer authentication plus the saved credential renew only the exact canonical Even loopback origin. State is bounded, atomic, owner-only, hashed, token-scoped, and expires after 90 days without renewal.
 - Both paired Macs receive read-only startup checks and enrollment even if only one owns Follow. Canceled display probes do not cancel bounded enrollment maintenance. Uncertain native writes cannot overtake later credential writes. GET recovery is bounded; an uncertain chat-open POST is never replayed.
@@ -26,7 +26,7 @@ The user confirmed installing and opening 0.4.1. Its first launch used a new exa
 
 ### Physical Even restart recovery accepted
 
-The user fully closed/reopened Even and reopened Genesis G2. Both physical Minis automatically registered two subsequently observed loopback origins through their saved recovery credentials. The current restart origin was absent from both static configuration allowlists and present in both private recovery-state files; no manual origin change or G2 service restart occurred during this acceptance check. Authenticated actual Even status/Follow traffic returned 200 on both Macs. A fresh Even SDK session on Mini 2 acknowledged a connected glasses display. Each private recovery file retained one installation and mode 0600.
+The user fully closed/reopened Even and reopened Genesis G2. Both physical Minis automatically registered three subsequently observed loopback origins through their saved recovery credentials. The current restart origin was absent from both static configuration allowlists and present in both private recovery-state files; no manual origin change or G2 service restart occurred during this acceptance check. Authenticated actual Even status/Follow traffic returned 200 on both Macs. A fresh Even SDK session on Mini 2 acknowledged a connected glasses display. Each private recovery file retained one installation and mode 0600.
 
 This confirms saved-credential recovery across actual Even restarts and port changes on both Minis. Native Follow was inactive during this readback because its controller lease had ended; connection recovery does not silently claim native ownership. A physical check that the background-relay checkbox restores its saved value remains separate from its passing persistence tests. iPad AirPlay switching inspection remains pending.
 

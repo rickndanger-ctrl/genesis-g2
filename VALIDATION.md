@@ -1,3 +1,13 @@
+# Genesis G2 connection recovery — 2026-11-15
+
+- The user reported Hold to Talk unavailable on iPad with Mini 1 / Claude, then confirmed C1 opened the assigned Mac chat and a new held/released sentence appeared in the native draft. Native microphone capture is physically confirmed for that check; no native app or firmware change was made.
+- The remaining failure was the glasses relay. Both Mac bridges recorded repeated rejected preflights from the updated installed Even app's new exact loopback origin. Mini 1 still held the active C1 Follow session and released draft, but had no glasses display acknowledgment.
+- Added only the newly observed exact origin to each private bridge configuration and restarted the dedicated G2 services. Existing tokens, chat mappings, Claude, and native companions were preserved; pre-change configuration backups are retained locally.
+- Both bridges then returned preflight 204 and paired status 200 for that origin, while rejecting missing credentials with 401 and an unlisted origin with 403. No wildcard origin or authentication exception was introduced.
+- Physical glasses recovery after reconnect is pending. A future Even restart/update can change its loopback port again; this exact-origin repair does not claim to solve automatic origin enrollment.
+
+---
+
 # Genesis G2 0.4.0 validation
 
 Date: 2026-11-14 (PST). Targets: Mini 1 and Mini 2. This release adds verified local Claude Code conversation reading and automatic Follow handoff among explicitly paired Macs.

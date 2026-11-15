@@ -16,7 +16,10 @@ const path=resolve(directory,'config.json');
 let previous={};
 try {previous=JSON.parse(await readFile(path,'utf8'));} catch(error) {if(error.code!=='ENOENT') throw error;}
 const token=previous.token ?? randomBytes(32).toString('base64url');
-const config={...previous,name,token,port:18767,publicOrigin:origin,allowedOrigins:[origin,'http://127.0.0.1:18767','http://localhost:18767'],
+// Retain exact origins verified during installed-Beta pairing. Re-running setup
+// must not silently disconnect a known packaged Even WebView.
+const allowedOrigins=[...new Set([...(previous.allowedOrigins ?? []),origin,'http://127.0.0.1:18767','http://localhost:18767'])];
+const config={...previous,name,token,port:18767,publicOrigin:origin,allowedOrigins,
   upstreamURL:'http://127.0.0.1:18765',upstreamTokenFile:resolve(homedir(),'Library/Application Support/Genesis Agent Micro Controller/Remote/pairing-token'),
   distPath:resolve(root,'dist'),readerPath:resolve(root,'bridge/bin/codex-reader')};
 await readFile(config.upstreamTokenFile,'utf8');

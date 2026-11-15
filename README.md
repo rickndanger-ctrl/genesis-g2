@@ -43,6 +43,8 @@ Claude selection, draft preview, and native Send status can follow too. Its repl
 
 A same-iPhone workflow requires a real Even Beta installation and a background/lock acceptance test. Developer QR success does not establish that. [Follow protocol](FOLLOW_PROTOCOL.md) documents the display-only boundary.
 
+Installed Even builds may use a loopback WebView origin different from the private QR URL. The first real Beta on this setup used an exact `http://127.0.0.1:<port>` origin. If a freshly installed package cannot connect, inspect the authenticated network diagnostic for its denied origin and add only that observed origin to the private bridge configuration, retaining bearer authentication. Do not use wildcard or opaque-null origins. Restart only the dedicated G2 bridge after a configuration change. Recheck after a full Even restart because the port may change; stability across restarts remains a physical acceptance check. Re-running setup preserves already verified exact origins.
+
 ## Build and local setup
 
 Requirements: macOS, Node 22.13 or newer, Apple Swift toolchain, Tailscale, and the existing Genesis Mac companion with remote pairing enabled. Even SDK 0.0.16 is pinned. The packaged build requires Even app 2.2.10 or newer.

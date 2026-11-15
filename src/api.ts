@@ -32,7 +32,9 @@ const array = (value: unknown, limit: number): unknown[] => {
 };
 
 export class HTTPGateway implements Gateway {
-  constructor(private fetcher: typeof fetch = fetch) {}
+  // Native WebView fetch requires the global receiver. Storing the unbound
+  // function and calling this.fetcher() binds it to this Gateway instead.
+  constructor(private fetcher: typeof fetch = (...args) => globalThis.fetch(...args)) {}
   private async request(host: Host, path: string, signal: AbortSignal, body?: unknown): Promise<Record<string, unknown>> {
     if (!host.token) throw new GatewayError('unpaired', 'Pair this computer to load its chats.');
     const url = new URL(path, normalizeBaseURL(host.baseURL));
@@ -42,7 +44,7 @@ export class HTTPGateway implements Gateway {
     signal.addEventListener('abort', abort, { once: true });
     const timer = setTimeout(abort, 12000);
     try {
-      const response = await this.fetcher(url, {
+      const response = await this.fetcher(url.toString(), {
         method: body === undefined ? 'GET' : 'POST', redirect: 'error', credentials: 'omit', cache: 'no-store',
         signal: timeout.signal,
         headers: { Authorization: `Bearer ${host.token}`, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },

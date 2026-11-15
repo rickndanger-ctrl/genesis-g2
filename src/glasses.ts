@@ -3,6 +3,7 @@ import type { EvenAppBridge, EvenHubEvent } from '@evenrealities/even_hub_sdk';
 import { replyPages, truncateUTF8 } from './pagination';
 import { ControllerStore, type State, type View } from './store';
 import { providerName, slotName } from './types';
+import type { DiagnosticRecorder } from './diagnostics';
 
 export type GlassesFrame = { kind: 'list' | 'text'; title: string; content: string; footer: string; items: string[]; context: string };
 export function shortHeading(value: string, max = 42): string {
@@ -86,14 +87,15 @@ export class GlassesRenderer {
   private rendering = false;
   private created = false;
   private forceRebuild = false;
+  private lifecycle = 0;
   private serial = 0;
   private ids: ContainerIDs = { heading: 1, body: 2, footer: 3 };
   private target: { context: string; kind: GlassesFrame['kind']; containerID: number } | null = null;
   get inputTarget() { return this.target; }
-  constructor(private port: GlassesPort, private onError: (message: string) => void) {}
-  reset() { this.created = false; this.last = null; this.target = null; }
+  constructor(private port: GlassesPort, private onError: (message: string) => void, private diagnostic: DiagnosticRecorder = () => {}, private onAcknowledged: () => void = () => {}) {}
+  reset() { this.lifecycle++; this.created = false; this.last = null; this.target = null; }
   reconnect(frame: GlassesFrame) { this.forceRebuild = true; this.target = null; this.render(frame); }
-  suspend() { this.pending = null; this.target = null; }
+  suspend() { this.lifecycle++; this.pending = null; this.target = null; }
   render(frame: GlassesFrame) {
     // Revoke input immediately when target identity changes, before Bluetooth
     // acknowledges the replacement page. Old visible rows must not select new IDs.
@@ -103,8 +105,10 @@ export class GlassesRenderer {
   private async drain() {
     if (this.rendering) return;
     this.rendering = true;
+    let generation = this.lifecycle;
     try {
       while (this.pending) {
+        generation = this.lifecycle;
         const frame = this.pending; this.pending = null;
         const force = this.forceRebuild; this.forceRebuild = false;
         if (!force && JSON.stringify(frame) === JSON.stringify(this.last)) continue;
@@ -114,18 +118,42 @@ export class GlassesRenderer {
           this.target = null;
         }
         if (!this.created) {
-          if (await this.port.createStartUpPageContainer(pageFor(frame, this.ids)) !== 0) throw new Error();
+          const result = await bounded(this.port.createStartUpPageContainer(pageFor(frame, this.ids)), 8000);
+          this.diagnostic('page_ack', { phase: 1, ack: result, containerID: this.ids.body });
+          if (generation !== this.lifecycle) return;
+          if (result === 1) {
+            // Developer reloads may leave a page mounted. A single explicit
+            // rebuild can recover that case; all other create errors stop.
+            const recovered = await bounded(this.port.rebuildPageContainer(new RebuildPageContainer(pageFor(frame, this.ids))), 8000);
+            this.diagnostic('page_ack', { phase: 2, ack: recovered ? 1 : 0, containerID: this.ids.body });
+            if (generation !== this.lifecycle) return;
+            if (!recovered) throw new Error();
+          } else if (result !== 0) throw new Error();
           this.created = true;
         } else if (!force && frame.kind === 'text' && this.last?.kind === 'text' && frame.context === this.last.context) {
           for (const [id, name, content, old] of [[this.ids.heading, 'heading', truncateUTF8(shortHeading(frame.title), 120), truncateUTF8(shortHeading(this.last.title), 120)], [this.ids.body, 'body', frame.content, this.last.content], [this.ids.footer, 'footer', truncateUTF8(frame.footer, 95), truncateUTF8(this.last.footer, 95)]] as const) {
-            if (content !== old && !await this.port.textContainerUpgrade(new TextContainerUpgrade({ containerID: id, containerName: name, content }))) throw new Error();
+            if (content !== old) {
+              const result = await bounded(this.port.textContainerUpgrade(new TextContainerUpgrade({ containerID: id, containerName: name, content })), 8000);
+              this.diagnostic('page_ack', { phase: 3, ack: result ? 1 : 0, containerID: id });
+              if (generation !== this.lifecycle) return;
+              if (!result) throw new Error();
+            }
           }
-        } else if (!await this.port.rebuildPageContainer(new RebuildPageContainer(pageFor(frame, this.ids)))) throw new Error();
+        } else {
+          const result = await bounded(this.port.rebuildPageContainer(new RebuildPageContainer(pageFor(frame, this.ids))), 8000);
+          this.diagnostic('page_ack', { phase: 2, ack: result ? 1 : 0, containerID: this.ids.body });
+          if (generation !== this.lifecycle) return;
+          if (!result) throw new Error();
+        }
         this.last = frame;
         this.target = { context: frame.context, kind: frame.kind, containerID: this.ids.body };
+        this.onAcknowledged();
       }
-    } catch { this.last = null; this.pending = null; this.target = null; this.onError('The glasses could not update. Reconnect them in the Even app, then try Connect glasses.'); }
-    finally { this.rendering = false; }
+    } catch {
+      if (generation !== this.lifecycle) return;
+      this.last = null; this.pending = null; this.target = null; this.diagnostic('page_failed', { phase: this.created ? 2 : 1, containerID: this.ids.body }); this.onError('Even did not acknowledge the glasses page. Reopen Genesis G2 inside the Even app, then connect again.');
+    }
+    finally { this.rendering = false; if (this.pending) void this.drain(); }
   }
 }
 
@@ -135,45 +163,99 @@ export class GlassesController {
   private unsubscribe: (() => void) | null = null;
   private active = true;
   private connecting = false;
-  constructor(private store: ControllerStore, private onStatus: (status: string, connected: boolean) => void, port?: GlassesPort) {
-    if (port) this.renderer = new GlassesRenderer(port, message => this.onStatus(message, false));
+  private connectionEpoch = 0;
+  private unsubscribeDevice: (() => void) | null = null;
+  constructor(private store: ControllerStore, private onStatus: (status: string, connected: boolean) => void, port?: GlassesPort, private diagnostic: DiagnosticRecorder = () => {}, private getBridge: () => Promise<EvenAppBridge> = waitForEvenAppBridge, private hasNative: () => boolean = nativeTransportAvailable) {
+    if (port) this.renderer = this.makeRenderer(port);
+  }
+  private makeRenderer(port: GlassesPort) {
+    return new GlassesRenderer(port, message => this.disconnect(3, 4, message), this.diagnostic, () => {
+      if (!this.active) return;
+      this.diagnostic('connected', { phase: 3, ack: 1 });
+      this.onStatus('Glasses page connected', true);
+    });
+  }
+  private disconnect(phase: number, reason: number, message: string) {
+    this.connectionEpoch++; this.active = false; this.renderer?.suspend();
+    this.diagnostic('disconnected', { phase, reason }); this.onStatus(message, false);
   }
   async connect(): Promise<void> {
     if (this.connecting) return;
     this.connecting = true;
-    this.onStatus('Connecting to Even…', false);
+    const attempt = ++this.connectionEpoch;
+    this.active = false; this.renderer?.suspend();
+    this.diagnostic('device_status', { phase: 0, native: this.hasNative() ? 1 : 0 });
+    this.onStatus('Glasses · Checking Even connection…', false);
+    let phase = 0;
     try {
-      const bridge = await bounded(waitForEvenAppBridge(), 5000);
-      const device = await bounded(bridge.getDeviceInfo(), 5000);
-      if (!device?.status.isConnected()) throw new Error();
+      if (!this.hasNative()) {
+        this.disconnect(0, 1, 'Glasses need the Even app. This browser can control your Mac, but cannot connect to G2.');
+        return;
+      }
+      phase = 1;
+      const bridge = await bounded(this.getBridge(), 5000);
+      if (attempt !== this.connectionEpoch) return;
+      this.diagnostic('bridge_ready', { native: 1, phase: 1 });
       this.bridge = bridge;
       this.unsubscribe?.();
       this.unsubscribe = bridge.onEvenHubEvent(event => this.handle(event));
+      this.unsubscribeDevice?.();
+      this.unsubscribeDevice = bridge.onDeviceStatusChanged(status => {
+        if (attempt !== this.connectionEpoch) return;
+        const connected = status.isConnected();
+        this.diagnostic('device_status', { phase: 4, deviceConnected: connected ? 1 : 0, status: connectionCode(status.connectType) });
+        if (status.connectType === 'disconnected' || status.connectType === 'connectionFailed') {
+          this.disconnect(4, 2, 'G2 disconnected from Even. Connect your glasses in Even, then tap Connect glasses.');
+        }
+      });
+      phase = 2;
+      let explicitlyDisconnected = false;
+      try {
+        const device = await bounded(bridge.getDeviceInfo(), 3000);
+        const status = device?.status;
+        this.diagnostic('device_status', { phase: 2, status: status ? connectionCode(status.connectType) : -1, deviceConnected: status?.isConnected() ? 1 : 0 });
+        explicitlyDisconnected = status?.connectType === 'disconnected' || status?.connectType === 'connectionFailed';
+      } catch { this.diagnostic('device_timeout', { phase: 2 }); }
+      if (attempt !== this.connectionEpoch) return;
+      if (explicitlyDisconnected) {
+        this.disconnect(2, 2, 'Even reports G2 disconnected. Connect your glasses in Even, then tap Connect glasses.');
+        return;
+      }
+      // Older host builds can omit device information. Only after proving the
+      // native callHandler exists may startup ACK establish the actual route.
+      phase = 3;
       this.active = true;
+      this.onStatus('Glasses · Waiting for the display…', false);
       const frame = glassesFrame(this.store.state, this.store.host?.name ?? 'Pair a computer');
       if (this.renderer) this.renderer.reconnect(frame);
-      else { this.renderer = new GlassesRenderer(bridge, message => this.onStatus(message, false)); this.renderer.render(frame); }
-      this.onStatus('Even glasses connected', true);
-    } catch { this.onStatus('Open Genesis G2 in the Even app with your glasses connected.', false); }
+      else { this.renderer = this.makeRenderer(bridge); this.renderer.render(frame); }
+    } catch {
+      if (attempt !== this.connectionEpoch) return;
+      this.diagnostic('bridge_timeout', { phase });
+      this.disconnect(phase, 3, phase === 1 ? 'Even’s native bridge did not respond. Reopen Genesis G2 inside Even and try again.' : 'The Even connection could not be initialized. Reopen Genesis G2 inside Even.');
+    }
     finally { this.connecting = false; }
   }
   render(state: State) { if (this.active) this.renderer?.render(glassesFrame(state, this.store.host?.name ?? 'Pair a computer')); }
   private count(view: View) { return view === 'hosts' ? this.store.state.hosts.length : view === 'providers' ? 2 : 6; }
   handle(event: EvenHubEvent, preview = false) {
+    const raw = event.listEvent ?? event.textEvent ?? event.sysEvent;
+    const source = event.listEvent ? 1 : event.textEvent ? 2 : event.sysEvent ? 3 : event.menuItemClickEvent ? 4 : 0;
+    if (!preview) this.diagnostic('input', { source, eventType: raw?.eventType ?? -1, index: event.listEvent?.currentSelectItemIndex ?? -1, containerID: event.listEvent?.containerID ?? event.textEvent?.containerID ?? -1, expectedID: this.renderer?.inputTarget?.containerID ?? -1 });
     const gesture = gestureFor(event); if (!gesture) return;
     const state = this.store.state;
-    if (gesture.action === 'background') { this.active = false; this.renderer?.suspend(); return; }
+    if (gesture.action === 'background') { this.disconnect(5, 5, 'Genesis G2 closed on the glasses. Open it again in Even to reconnect.'); return; }
     if (gesture.action === 'overlay-open' || gesture.action === 'overlay-close') return;
     if (!preview) {
-      if (!this.active) return;
+      if (!this.active) { this.diagnostic('input_rejected', { reason: 1 }); return; }
       const frame = glassesFrame(state, this.store.host?.name ?? 'Pair a computer');
       const target = this.renderer?.inputTarget;
-      if (!target || target.context !== frame.context || target.kind !== frame.kind) return;
+      if (!target || target.context !== frame.context || target.kind !== frame.kind) { this.diagnostic('input_rejected', { reason: !target ? 2 : 3 }); return; }
       const input = event.listEvent ?? event.textEvent;
-      if (input && input.containerID !== target.containerID) return;
-      if (event.listEvent && target.kind !== 'list' || event.textEvent && target.kind !== 'text') return;
+      if (input && input.containerID !== target.containerID) { this.diagnostic('input_rejected', { reason: 4, containerID: input.containerID ?? -1, expectedID: target.containerID }); return; }
+      if (event.listEvent && target.kind !== 'list' || event.textEvent && target.kind !== 'text') { this.diagnostic('input_rejected', { reason: 5 }); return; }
       // An unscoped sys click cannot establish which chat was visible.
-      if (event.sysEvent && (gesture.action === 'select' || gesture.action === 'turn')) return;
+      if (event.sysEvent && (gesture.action === 'select' || gesture.action === 'turn')) { this.diagnostic('input_rejected', { reason: 6 }); return; }
     }
     if (gesture.action === 'menu') {
       if (gesture.id === 4) void this.store.refresh();
@@ -200,6 +282,10 @@ export class GlassesController {
     else if (index >= 0 && index < 6) void this.store.openSlot(index + 1);
   }
 }
+export function nativeTransportAvailable(): boolean {
+  return typeof window !== 'undefined' && typeof (window as unknown as { flutter_inappwebview?: { callHandler?: unknown } }).flutter_inappwebview?.callHandler === 'function';
+}
+function connectionCode(value: string): number { return ({ none: 0, connecting: 1, connected: 2, disconnected: 3, connectionFailed: 4 } as Record<string, number>)[value] ?? -1; }
 export function bounded<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('timeout')), ms); promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); }); });
 }

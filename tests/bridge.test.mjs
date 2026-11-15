@@ -18,6 +18,7 @@ async function fixture(t, options={}) {
   await writeFile(join(directory,'index.html'),'<title>Genesis G2</title>');
   const server=createBridge({token,allowedOrigins:[origin],distPath:directory}, {
     upstreamToken:'fixture-upstream-token',
+    diagnosticNow:options.diagnosticNow,
     fetch:async(url,init)=> {
       assert.equal(init.headers.Authorization,'Bearer fixture-upstream-token');
       assert.equal(new URL(url).origin,'http://127.0.0.1:18765');
@@ -58,6 +59,93 @@ test('CORS preflight allows only paired origins and supported request headers',a
   assert.equal((await request('/api/open',{method:'OPTIONS',headers})).status,204);
   assert.equal((await request('/api/open',{method:'OPTIONS',headers:{...headers,'Access-Control-Request-Headers':'X-Execute'}})).status,403);
   assert.equal((await request('/api/open',{method:'OPTIONS',headers:{...headers,'Access-Control-Request-Method':'DELETE'}})).status,403);
+});
+test('connection diagnostics stay authenticated, numeric, bounded, and non-executing',async t=>{
+  const {request,base,commands,reads}=await fixture(t);
+  const post=body=>request('/api/diagnostics',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  assert.equal((await fetch(base+'/api/diagnostics')).status,401);
+  const event={seq:0,at:Date.now(),event:'boot',data:{native:1}};
+  assert.equal((await post({session:id,events:[event]})).status,200);
+  assert.equal((await post({session:id,events:[{...event,data:{text:'private contents'}}]})).status,422);
+  assert.equal((await post({session:id,events:[{...event,event:'private contents'}]})).status,422);
+  assert.equal((await post({session:id,events:[event],token:'anything'})).status,422);
+  assert.equal((await post({session:id,events:Array(33).fill(event)})).status,422);
+  for(let batch=0;batch<5;batch++) assert.equal((await post({session:id,events:Array.from({length:32},(_,i)=>({...event,seq:batch*32+i}))})).status,200);
+  const result=await (await request('/api/diagnostics')).json();
+  assert.equal(result.events.length,128);
+  assert.deepEqual(result.events.at(-1).data,{native:1});
+  assert.equal(result.events.at(-1).seq,159);
+  assert.equal(commands.length,0);assert.equal(reads.length,0);
+});
+test('passive network diagnostics require authentication and exclude diagnostic reads themselves',async t=>{
+  const {request,base,commands,reads}=await fixture(t);
+  assert.equal((await fetch(base+'/api/network-diagnostics')).status,401);
+  assert.equal((await request('/api/network-diagnostics',{headers:{Origin:'https://untrusted.test'}})).status,403);
+  const first=await request('/api/network-diagnostics');
+  assert.equal(first.status,200);assert.equal(first.headers.get('cache-control'),'no-store');
+  assert.deepEqual(await first.json(),{requests:[]});
+  assert.equal((await request('/healthz')).status,200);
+  const observed=await (await request('/api/network-diagnostics')).json();
+  assert.equal(observed.requests.length,1);
+  assert.deepEqual(Object.keys(observed.requests[0]).sort(),['method','origin','path','responseStatus','timestamp']);
+  assert.equal(observed.requests[0].path,'/healthz');
+  assert.equal(observed.requests[0].method,'GET');
+  assert.equal(observed.requests[0].origin,'absent');
+  assert.equal(observed.requests[0].responseStatus,200);
+  assert.equal(Number.isSafeInteger(observed.requests[0].timestamp),true);
+  assert.deepEqual(await (await request('/api/network-diagnostics')).json(),observed);
+  assert.equal(commands.length,0);assert.equal(reads.length,0);
+});
+test('network trace captures denied preflights and static requests without private request data',async t=>{
+  const {request,base,commands,reads}=await fixture(t);
+  const privateValue='private-query-body-and-header-value';
+  assert.equal((await request('/api/open?chatID='+id,{method:'OPTIONS',headers:{Origin:'https://unpaired.test','Access-Control-Request-Method':'POST'}})).status,403);
+  assert.equal((await request('/api/open',{method:'OPTIONS',headers:{Origin:origin,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'X-Private'}})).status,403);
+  assert.equal((await fetch(base+'/api/status?token='+privateValue,{headers:{Authorization:privateValue,'User-Agent':privateValue,'X-Forwarded-For':'192.0.2.123'}})).status,401);
+  assert.equal((await request('/?token='+privateValue+'&chatID='+id)).status,200);
+  assert.equal((await request('/assets/'+privateValue+'.js?chatID='+id)).status,404);
+  assert.equal((await request('/api/'+privateValue+'?chatID='+id)).status,404);
+  assert.equal((await request('/'+privateValue,{method:'DELETE'})).status,405);
+  assert.equal((await request('/api/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'codex',chatID:id,text:privateValue})})).status,422);
+  const data=await (await request('/api/network-diagnostics')).json();
+  assert.deepEqual(data.requests.map(({method,path,responseStatus,origin})=>({method,path,responseStatus,origin})),[
+    {method:'OPTIONS',path:'/api/open',responseStatus:403,origin:'https://unpaired.test'},
+    {method:'OPTIONS',path:'/api/open',responseStatus:403,origin},
+    {method:'GET',path:'/api/status',responseStatus:401,origin:'absent'},
+    {method:'GET',path:'/',responseStatus:200,origin:'absent'},
+    {method:'GET',path:'/assets/*',responseStatus:404,origin:'absent'},
+    {method:'GET',path:'/api/other',responseStatus:404,origin:'absent'},
+    {method:'other',path:'/static/other',responseStatus:405,origin:'absent'},
+    {method:'POST',path:'/api/open',responseStatus:422,origin:'absent'}
+  ]);
+  const serialized=JSON.stringify(data);
+  for (const secret of [privateValue,id,token,'fixture-upstream-token','192.0.2.123','User-Agent','Authorization'])
+    assert.equal(serialized.includes(secret),false);
+  assert.equal(commands.length,0);assert.equal(reads.length,0);
+});
+test('network origins contain only exact URL origins or fixed safe markers',async t=>{
+  const {request}=await fixture(t);
+  const origins=['null','not a URL','https://user:secret@origin.test','https://origin.test/path',
+    'https://origin.test?token=secret','https://origin.test#secret','file:///private/home','https://one.test https://two.test',origin];
+  for (const value of origins) await request('/healthz',{headers:{Origin:value}});
+  const data=await (await request('/api/network-diagnostics')).json();
+  assert.deepEqual(data.requests.map(row=>row.origin),['null','invalid','invalid','invalid','invalid','invalid','invalid','invalid',origin]);
+  assert.equal(JSON.stringify(data).includes('secret'),false);
+  assert.equal(JSON.stringify(data).includes('private/home'),false);
+});
+test('network trace retains only the latest 64 responses and expires after fifteen minutes',async t=>{
+  let now=1_800_000_000_000;
+  const {request}=await fixture(t,{diagnosticNow:()=>now});
+  for(let index=0;index<70;index++) {now++;await request('/healthz?privateIndex='+index);}
+  const data=await (await request('/api/network-diagnostics')).json();
+  assert.equal(data.requests.length,64);
+  assert.equal(data.requests[0].timestamp,1_800_000_000_007);
+  assert.equal(data.requests.at(-1).timestamp,now);
+  now+=15*60_000;
+  assert.deepEqual(await (await request('/api/network-diagnostics')).json(),{requests:[]});
+  await request('/healthz');
+  const fresh=await (await request('/api/network-diagnostics')).json();
+  assert.equal(fresh.requests.length,1);assert.equal(fresh.requests[0].timestamp,now);
 });
 test('profile preserves six slot identities and marks shortcuts instead of running them',async t=>{
   const {request,commands}=await fixture(t);

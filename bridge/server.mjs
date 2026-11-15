@@ -12,6 +12,24 @@ const palette = ['#4285ff','#9965ed','#ed66ad','#f29b43','#55b96d','#50bfd7'];
 const providers = new Set(['codex','claude']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const opaque = /^[A-Za-z0-9._:-]{1,256}$/;
+const networkRoutes = new Set(['/','/index.html','/healthz','/api/status','/api/profile','/api/chats',
+  '/api/reply','/api/open','/api/diagnostics','/api/network-diagnostics']);
+function networkPath(pathname) {
+  if (networkRoutes.has(pathname)) return pathname;
+  if (pathname.startsWith('/api/')) return '/api/other';
+  if (pathname.startsWith('/assets/')) return '/assets/*';
+  return '/static/other';
+}
+function networkOrigin(value) {
+  if (value === undefined) return 'absent';
+  if (value === 'null') return 'null';
+  if (typeof value !== 'string' || value.length > 2048) return 'invalid';
+  try {
+    const parsed = new URL(value);
+    // Never retain credentials, a path, a query, fragments, or opaque origins.
+    return ['https:','http:'].includes(parsed.protocol) && parsed.origin === value ? parsed.origin : 'invalid';
+  } catch { return 'invalid'; }
+}
 export class Fault extends Error {
   constructor(status, code, message) { super(message); Object.assign(this,{status,code}); }
 }
@@ -63,6 +81,16 @@ export function createBridge(config, dependencies={}) {
   let openBusy=false;
   const replyFlights=new Map();
   const replyCache=new Map();
+  const diagnostics=[];
+  const networkRequests=[];
+  const networkNow=dependencies.diagnosticNow ?? Date.now;
+  function pruneNetworkRequests() {
+    const cutoff=networkNow()-15*60_000;
+    for (let index=networkRequests.length-1;index>=0;index--)
+      if (networkRequests[index].timestamp<=cutoff) networkRequests.splice(index,1);
+  }
+  const diagnosticEvents=new Set(['boot','bridge_ready','bridge_timeout','device_status','device_timeout','page_ack','page_failed','input','input_rejected','connected','disconnected','mac_status']);
+  const diagnosticFields=new Set(['native','phase','status','connected','ack','source','eventType','index','containerID','expectedID','reason','sequence','deviceConnected']);
   async function upstream(path, options={}) {
     try {
       const token=dependencies.upstreamToken ?? (await readFile(config.upstreamTokenFile,'utf8')).trim();
@@ -148,8 +176,19 @@ export function createBridge(config, dependencies={}) {
   }
   const server=http.createServer(async(request,response)=> {
     let cors={};
+    let route='invalid', excludeNetworkDiagnostic=false;
+    const method=['GET','POST','OPTIONS'].includes(request.method) ? request.method : 'other';
+    const observedOrigin=networkOrigin(request.headers.origin);
+    response.once('finish',()=> {
+      if (excludeNetworkDiagnostic) return;
+      pruneNetworkRequests();
+      networkRequests.push({method,path:route,responseStatus:response.statusCode,origin:observedOrigin,timestamp:networkNow()});
+      if (networkRequests.length>64) networkRequests.splice(0,networkRequests.length-64);
+    });
     try {
       const target=new URL(request.url,'http://127.0.0.1');
+      route=networkPath(target.pathname);
+      excludeNetworkDiagnostic=target.pathname==='/api/network-diagnostics' && request.method==='GET';
       const origin=request.headers.origin;
       if (origin!==undefined) {
         if (!allowedOrigins.has(origin)) fault(403,'origin_denied','This app origin has not been paired with Genesis G2.');
@@ -164,6 +203,29 @@ export function createBridge(config, dependencies={}) {
           response.writeHead(204,{...cors,'Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Max-Age':'300'}); return response.end();
         }
         if (!tokenMatches(request.headers.authorization,config.token)) fault(401,'not_paired','Pair Genesis G2 with this Mac first.');
+        if (target.pathname==='/api/network-diagnostics' && request.method==='GET') {
+          pruneNetworkRequests();
+          return json(response,200,{requests:networkRequests},cors);
+        }
+        if (target.pathname==='/api/diagnostics' && request.method==='GET') {
+          const cutoff=Date.now()-15*60_000;
+          return json(response,200,{events:diagnostics.filter(row=>row.receivedAt>=cutoff)},cors);
+        }
+        if (target.pathname==='/api/diagnostics' && request.method==='POST') {
+          const body=await readJSONBody(request);
+          if (Object.keys(body).some(key=>!['session','events'].includes(key)) || !uuid.test(body.session ?? '') || !Array.isArray(body.events) || body.events.length>32)
+            fault(422,'invalid_diagnostic','Invalid connection diagnostic.');
+          const rows=body.events.map(row=>{
+            if (!row || Object.keys(row).some(key=>!['seq','at','event','data'].includes(key)) || !diagnosticEvents.has(row.event) || !Number.isSafeInteger(row.seq) || row.seq<0 || row.seq>1_000_000 || !Number.isSafeInteger(row.at) || row.at<0 || !row.data || typeof row.data!=='object' || Array.isArray(row.data))
+              fault(422,'invalid_diagnostic','Invalid connection diagnostic.');
+            const entries=Object.entries(row.data);
+            if (entries.some(([key,value])=>!diagnosticFields.has(key) || !Number.isInteger(value) || value < -1 || value>2147483647)) fault(422,'invalid_diagnostic','Only connection counters are accepted.');
+            return {session:body.session,seq:row.seq,at:row.at,event:row.event,data:Object.fromEntries(entries),receivedAt:Date.now()};
+          });
+          diagnostics.push(...rows);
+          if (diagnostics.length>128) diagnostics.splice(0,diagnostics.length-128);
+          return json(response,200,{ok:true},cors);
+        }
         if (request.method==='GET' && target.pathname==='/api/status') {
           const source=await hostStatus();
           return json(response,200,{version:'0.1.0',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({

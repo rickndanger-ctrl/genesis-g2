@@ -78,6 +78,10 @@ evenhub pack .local/app.json dist -o .local/genesis-g2-0.1.0.ehpk --sdk-ver 0.0.
 
 The bridge exposes read-only status/profile/chat/reply routes and one `openChat` operation. It has no Send, approval, generic shell, arbitrary URL or arbitrary command endpoint. Chat changes are serialized and checked against current account inventory; slot selections are rejected if the mapping has changed. The Codex reader never starts a daemon, resumes a thread or sends a message. Replies and bearer tokens are not logged.
 
+Connection diagnosis uses an authenticated, bounded in-memory trace: at most 128 records, visible for 15 minutes. It accepts only named connection stages and integer counters. Chat text, chat IDs, device serial numbers, and credentials are rejected. These diagnostics go only to the paired Mac, never an analytics service.
+
+The Mac also retains up to 64 recent request results for 15 minutes to distinguish network, origin and authorization failures. These contain only a fixed route category, HTTP method/status, validated origin and timestamp. No URL queries, bodies, tokens, IP addresses or user-agent strings are retained.
+
 Tests cover stale host/agent/selection callbacks, reply targeting and pagination, SDK event handling, authorization and origins, mapping changes, concurrent opens, output bounds, and read-only Codex message selection. Passing tests do not prove Bluetooth input/display behavior, background operation or physical readability. See [VALIDATION.md](VALIDATION.md) for observed results and outstanding acceptance checks.
 
 ## Roll back only Genesis G2

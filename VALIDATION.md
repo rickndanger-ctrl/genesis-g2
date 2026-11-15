@@ -10,6 +10,16 @@ Date: 2026-11-15 (PST). Both Mini bridges are deployed; the private Even Beta is
 - Private package: com.pybird.genesisg2 0.4.1, 65,393 bytes, SDK 0.0.16, minimum Even app 2.2.10. SHA-256: `908118cb3f6cf5d1a088257976d09caac02a917e7325b1e49b447ced6363576e`. Input privacy scan found neither Mac pairing token. Even Hub reload showed **Beta build v0.4.1 Published** for the existing one-person group; local proof `.local/beta-v041-proof.jpg`.
 - Rollback copies of both runtimes/configuration remain private. No native iPhone/iPad app or firmware changed. Neo has not been deployed by this recovery update.
 
+### Additional live read repair and native switching audit
+
+The post-deploy read check caught transient empty Claude accessibility inventories on Mini 1: eight successive companion snapshots alternated between 0 and 17 rows. Exact C1/C2 identities were unique and unchanged whenever present. This could cause `chat_missing` before a read or `chat_changed` after it.
+
+The bridge now retries only missing Claude reply-validation inventory, up to three fresh attempts with 100 ms spacing and a 2.5 second budget per pre/post phase. Post-read recovery revalidates the local reader/account/session too. Duplicates and identity changes still fail immediately; no cached inventory/text fallback or action retry was introduced. Six new regressions passed, bringing bridge/recovery/Claude checks to 81. Independent review found no blocking defect. Installed the repair on both Minis. Eight sequential live C1/C2 reads on Mini 1 returned 200 with exact targets (229–494 ms), and four Mini 2 Codex reads returned 200 with exact targets (21–123 ms).
+
+Native app review passed 36 Follow checks and 210 HTTP/store checks using fixture transport on the existing iPad simulator. No cross-host/provider draft leak or stale command routing was found. Host/provider switching intentionally disables Follow; re-enable it and confirm a chat open on the new route. A minor existing UI issue remains: provider switching can briefly retain the previous connection label until refresh returns. No native app source or installed binary was changed by this audit.
+
+Physical iPad settings were read successfully and show three distinct paired hosts: Mini 1, Mini 2, and Neo. Neo’s native HTTPS service responded 401 to an unauthenticated request, establishing reachability only. Claude was closed on Mini 2 at the time of the read check. The Mac’s iPhone Mirroring settings still target Rick’s iPhone; no physical iPad UI switching test has run. iPad AirPlay viewing requires starting Screen Mirroring on the iPad, and does not by itself establish interactive control.
+
 Pending: install/open the new Even Beta, enroll both Mac credentials, then verify a full Even restart and changed port without adding that new origin manually. A newly installed build may need one initial trusted-origin bootstrap before it can enroll.
 
 # Genesis G2 connection recovery — 2026-11-15

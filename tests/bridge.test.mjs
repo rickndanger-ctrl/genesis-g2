@@ -269,10 +269,69 @@ test('Claude and Codex replies never share a cache entry or in-flight request',a
 });
 test('Claude revalidates the inventory after reading and rejects renamed targets',async t=>{
   let count=0;
-  const {request}=await fixture(t,{inventory:()=>[{id,title:++count===1 ? 'First thread' : 'Renamed thread'}],
+  const {request,commands}=await fixture(t,{inventory:()=>[{id,title:++count===1 ? 'First thread' : 'Renamed thread'}],
     claudeReader:async target=>({ok:true,provider:'claude',threadId:target.id,reply:{text:'stale conversation'}})});
   const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,409);
   assert.equal((await response.text()).includes('stale conversation'),false);
+  assert.equal(count,2);assert.equal(commands.length,0);
+});
+test('Claude reply reads recover a transient empty or incomplete initial inventory',async t=>{
+  for (const missing of [[],[{id:second,title:'Other thread'}]]) {
+    let inventories=0,readCount=0;
+    const {request,commands,reads}=await fixture(t,{inventory:()=>++inventories===1 ? missing:[{id,title:'First thread'}],
+      claudeReader:async target=>{readCount++;return {ok:true,provider:'claude',threadId:target.id,title:target.title,reply:{text:'Verified current reply'}};}});
+    const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,200);
+    assert.equal((await response.json()).text,'Verified current reply');
+    assert.equal(inventories,3);assert.equal(readCount,1);assert.equal(commands.length,0);assert.equal(reads.length,0);
+  }
+});
+test('Claude refreshes both inventory and account-bound reader after a missing post-read target',async t=>{
+  let inventories=0,readCount=0;
+  const {request,commands}=await fixture(t,{inventory:()=>++inventories===2 ? []:[{id,title:'First thread'}],
+    claudeReader:async target=>({ok:true,provider:'claude',threadId:target.id,title:target.title,reply:{text:++readCount===1 ? 'Do not retain this old read':'Fresh verified reply'}})});
+  const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,200);
+  const body=await response.text();assert.equal(body.includes('Fresh verified reply'),true);assert.equal(body.includes('Do not retain'),false);
+  assert.equal(inventories,3);assert.equal(readCount,2);assert.equal(commands.length,0);
+});
+test('Claude inventory retries remain bounded when the target is persistently missing',async t=>{
+  for (const afterRead of [false,true]) {
+    let inventories=0,readCount=0;
+    const {request,commands}=await fixture(t,{inventory:()=>++inventories===1 && afterRead ? [{id,title:'First thread'}]:[],
+      claudeReader:async target=>{readCount++;return {ok:true,provider:'claude',threadId:target.id,reply:{text:'Unverified private reply'}};}});
+    const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,afterRead ? 409:404);
+    const body=await response.text();assert.equal(body.includes(afterRead ? 'chat_changed':'chat_missing'),true);assert.equal(body.includes('Unverified private'),false);
+    assert.equal(inventories,afterRead ? 4:3);assert.equal(readCount,afterRead ? 3:0);assert.equal(commands.length,0);
+  }
+});
+test('Claude duplicate inventories and changed target IDs fail immediately without retry',async t=>{
+  for (const mode of ['duplicate-before','duplicate-after','identity-after']) {
+    let inventories=0,readCount=0;
+    const {request,commands}=await fixture(t,{inventory:()=>{
+      inventories++;
+      if (mode!=='duplicate-before' && inventories===1) return [{id,title:'First thread'}];
+      return mode==='identity-after' ? [{id:second,title:'First thread'}]:[{id,title:'First thread'},{id,title:'First thread'}];
+    },claudeReader:async target=>{readCount++;return {ok:true,provider:'claude',threadId:target.id,reply:{text:'Unverified private reply'}};}});
+    const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,409);
+    const data=await response.json();assert.equal(data.error.code,mode==='identity-after' ? 'chat_changed':'ambiguous_chat');
+    assert.equal(JSON.stringify(data).includes('Unverified private'),false);
+    assert.equal(inventories,mode==='duplicate-before' ? 1:2);assert.equal(readCount,mode==='duplicate-before' ? 0:1);assert.equal(commands.length,0);
+  }
+});
+test('Claude account or session drift during an inventory gap cannot expose an earlier read',async t=>{
+  let inventories=0,readCount=0;
+  const {request,commands}=await fixture(t,{inventory:()=>++inventories===1 ? [{id,title:'First thread'}]:[],
+    claudeReader:async target=>{if (++readCount>1) throw Error('identity_changed');return {ok:true,provider:'claude',threadId:target.id,reply:{text:'Prior account private reply'}};}});
+  const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,503);
+  const data=await response.json();assert.equal(data.error.code,'reader_unavailable');assert.equal(JSON.stringify(data).includes('Prior account'),false);
+  assert.equal(inventories,2);assert.equal(readCount,2);assert.equal(commands.length,0);
+});
+test('Claude reply recovery does not retry chat lists, open actions, or Codex inventory',async t=>{
+  let inventories=0;
+  const {request,commands,reads}=await fixture(t,{inventory:()=>{inventories++;return [];},claudeReader:async()=>{throw Error('must not read');}});
+  assert.equal((await request('/api/chats?provider=claude')).status,200);assert.equal(inventories,1);
+  assert.equal((await request('/api/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'claude',chatID:id})})).status,404);assert.equal(inventories,2);
+  assert.equal((await request('/api/reply?provider=codex&chatID='+id)).status,404);assert.equal(inventories,3);
+  assert.equal(commands.length,0);assert.equal(reads.length,0);
 });
 test('repeated Claude reads revalidate local account/session instead of returning cached text',async t=>{
   let count=0;

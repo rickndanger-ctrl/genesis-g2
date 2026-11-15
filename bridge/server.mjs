@@ -112,11 +112,11 @@ export function createBridge(config, dependencies={}) {
   }
   const diagnosticEvents=new Set(['boot','bridge_ready','bridge_timeout','device_status','device_timeout','page_ack','page_failed','input','input_rejected','connected','disconnected','mac_status']);
   const diagnosticFields=new Set(['native','phase','status','connected','ack','source','eventType','index','containerID','expectedID','reason','sequence','deviceConnected']);
-  async function upstream(path, options={}) {
+  async function upstream(path, options={}, timeoutMs=12_000) {
     try {
       const token=dependencies.upstreamToken ?? (await readFile(config.upstreamTokenFile,'utf8')).trim();
       const response=await fetcher(upstreamURL+path, {
-        ...options, redirect:'error', signal:AbortSignal.timeout(12_000),
+        ...options, redirect:'error', signal:AbortSignal.timeout(timeoutMs),
         headers:{'Authorization':`Bearer ${token}`,...(options.body ? {'Content-Type':'application/json'} : {})}
       });
       if (!response.ok) fault(response.status === 401 ? 503 : 502,'companion_unavailable','The Mac companion could not complete this request. Open Genesis on this Mac and refresh.');
@@ -158,13 +158,38 @@ export function createBridge(config, dependencies={}) {
       fault(503,'follow_unavailable','Open the Genesis Mac companion to use Follow this controller.');
     }
   }
-  async function chats(provider) {
-    const data=await upstream('/v1/chats?provider='+provider);
+  async function chats(provider, timeoutMs=12_000) {
+    const data=await upstream('/v1/chats?provider='+provider,{},timeoutMs);
     if (!Array.isArray(data.chats)) fault(502,'invalid_response','The chat list is unavailable.');
     const rows=data.chats.slice(0,500).map(row=>cleanChat(row,provider)).filter(Boolean);
     const ids=new Set();
     for (const row of rows) { if (ids.has(row.id)) fault(409,'ambiguous_chat','The Mac returned an ambiguous chat list. Refresh before selecting.'); ids.add(row.id); }
     return rows;
+  }
+  async function claudeReplySelection(id, expectedTitle, read) {
+    // Claude can briefly return an empty or incomplete accessibility snapshot.
+    // Retry only read validation, with fresh inventory and a strict time/attempt
+    // budget. Never retain a prior inventory or retry an action to hide the gap.
+    const deadline=Date.now()+2500;
+    for (let attempt=0;attempt<3;attempt++) {
+      if (Date.now()>=deadline) break;
+      // After a missing post-read target, refresh the reader as well: its local
+      // account/session pin must still hold when the inventory recovers.
+      const source=read ? await read():undefined;
+      const remaining=deadline-Date.now();
+      if (remaining<=0) break;
+      const rows=await chats('claude',remaining), selected=rows.find(row=>row.id===id);
+      if (selected) {
+        if (expectedTitle!==undefined && selected.title!==expectedTitle)
+          fault(409,'chat_changed','The Claude chat changed while reading. Refresh its selection.');
+        return {selected,source};
+      }
+      if (expectedTitle!==undefined && rows.some(row=>row.title===expectedTitle))
+        fault(409,'chat_changed','The Claude chat changed while reading. Refresh its selection.');
+      if (attempt===2 || deadline-Date.now()<=100) break;
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    return null;
   }
   async function profile(provider) {
     const value=await upstream('/v1/profile?provider='+provider);
@@ -201,10 +226,12 @@ export function createBridge(config, dependencies={}) {
       let source;
       if (provider==='codex') source=await readReply(id);
       else {
-        try { source=await claudeReader({id,title:selected.title}); }
-        catch { fault(503,'reader_unavailable','This Claude conversation could not be verified. Keep its Code chat open on this Mac, then refresh.'); }
-        const current=(await chats('claude')).filter(row=>row.id===id && row.title===selected.title);
-        if (current.length!==1) fault(409,'chat_changed','The Claude chat changed while reading. Refresh its selection.');
+        const verified=await claudeReplySelection(id,selected.title,async()=> {
+          try { return await claudeReader({id,title:selected.title}); }
+          catch { fault(503,'reader_unavailable','This Claude conversation could not be verified. Keep its Code chat open on this Mac, then refresh.'); }
+        });
+        if (!verified) fault(409,'chat_changed','The Claude chat changed while reading. Refresh its selection.');
+        source=verified.source;
       }
       const matchesID=provider==='codex' ? source?.threadId?.toLowerCase()===id : source?.threadId===id;
       if (source?.ok!==true || source.provider!==provider || !matchesID)
@@ -327,7 +354,7 @@ export function createBridge(config, dependencies={}) {
           const id=chatID(target.searchParams.get('chatID'),provider);
           const source=await hostStatus();
           if (!source.providers.some(p=>p.id===provider && p.readiness==='ready')) fault(503,'provider_unavailable','Open the selected agent on the unlocked Mac to read its conversation.');
-          const selected=(await chats(provider)).find(row=>row.id===id);
+          const selected=provider==='claude' ? (await claudeReplySelection(id))?.selected:(await chats(provider)).find(row=>row.id===id);
           if (!selected) fault(404,'chat_missing','This chat is not in the current account. Refresh your mappings.');
           return json(response,200,await reply(provider,selected),cors);
         }

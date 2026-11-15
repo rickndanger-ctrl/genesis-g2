@@ -1,5 +1,7 @@
 import './style.css';
 import { HTTPGateway } from './api';
+import { OriginRecovery } from './origin-recovery';
+import { NativeBackgroundPreference } from './native-preferences';
 import { ControllerStore } from './store';
 import { GlassesController, glassesFrame, bounded, nativeTransportAvailable } from './glasses';
 import { ConnectionDiagnostics } from './diagnostics';
@@ -27,11 +29,11 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
 <main class="shell">
   <header class="brand"><div><div class="eyebrow">G E N E S I S</div><h1>Your agents.<br><span>Within a glance.</span></h1></div><button class="icon-button" id="settings-open" aria-label="Pair computers and settings">${icons.settings}</button></header>
-  <section class="route-card" aria-label="Computer and agent"><div class="section-label">CONNECTED WORKSPACE <span class="version">G2 / 04</span></div><nav class="host-switch" id="hosts" aria-label="Computers"></nav><nav class="provider-switch" id="providers" aria-label="Agent"><button data-provider="codex"><span class="provider-icon">⌘</span> Codex</button><button data-provider="claude"><span class="provider-icon">✳</span> Claude</button></nav><div class="connection-row"><span id="connection"></span><button id="refresh" class="icon-button small" aria-label="Refresh computer and chats">${icons.refresh}</button></div><div class="top-glasses"><div><strong>Glasses</strong><span id="glasses-status-top">Not connected yet</span></div><button id="glasses-connect-top" class="primary">Connect glasses</button></div></section>
+  <section class="route-card" aria-label="Computer and agent"><div class="section-label">CONNECTED WORKSPACE <span class="version">G2 / 04.1</span></div><nav class="host-switch" id="hosts" aria-label="Computers"></nav><nav class="provider-switch" id="providers" aria-label="Agent"><button data-provider="codex"><span class="provider-icon">⌘</span> Codex</button><button data-provider="claude"><span class="provider-icon">✳</span> Claude</button></nav><div class="connection-row"><span id="connection"></span><button id="refresh" class="icon-button small" aria-label="Refresh computer and chats">${icons.refresh}</button></div><div class="top-glasses"><div><strong>Glasses</strong><span id="glasses-status-top">Not connected yet</span></div><button id="glasses-connect-top" class="primary">Connect glasses</button></div></section>
   <div id="preview-banner" class="preview-banner" hidden><span>DEMO · Sample chats, no computer connected</span><button id="leave-demo">Exit preview</button></div>
   <div id="notice" class="notice" role="alert" hidden></div>
   <section id="onboarding" class="onboarding" hidden><div class="optical-mark">${icons.glasses}</div><h2>A little closer to your work.</h2><p>Pair a Genesis bridge to bring your chats into view. Your existing controller keeps its own settings.</p><div class="button-row"><button class="primary" id="pair-start">Pair a computer</button><button class="quiet" id="demo-start">Explore preview</button></div></section>
-  <section class="follow-card" aria-label="Native controller follow"><div class="section-label">NATIVE CONTROLLER</div><h2 id="follow-title">Use Genesis on iPhone or iPad.</h2><p id="follow-status" role="status">Enable Follow this controller in Genesis to show its selected chat, draft, and reply here.</p><div class="follow-actions"><button id="follow-leave" class="quiet" hidden>Leave follow</button><button id="follow-resume" class="primary" hidden>Resume follow</button></div><details><summary>Using this iPhone as the controller?</summary><p>Start with Genesis on iPad and keep Even open on iPhone. Same-iPhone control needs an Even Beta install and a background connection test; QR preview does not establish that it works.</p><label class="background-option"><input id="beta-background" type="checkbox" /> Try background relay — Even Beta only</label></details></section>
+  <section class="follow-card" aria-label="Native controller follow"><div class="section-label">NATIVE CONTROLLER</div><h2 id="follow-title">Use Genesis on iPhone or iPad.</h2><p id="follow-status" role="status">Enable Follow this controller in Genesis to show its selected chat, draft, and reply here.</p><div class="follow-actions"><button id="follow-leave" class="quiet" hidden>Leave follow</button><button id="follow-resume" class="primary" hidden>Resume follow</button></div><details><summary>Using this iPhone as the controller?</summary><p>Start with Genesis on iPad and keep Even open on iPhone. Same-iPhone control needs an Even Beta install and a background connection test; QR preview does not establish that it works.</p><label class="background-option"><input id="beta-background" type="checkbox" /> Try background relay — Even Beta only</label><p id="background-save-status" class="hint" role="status" hidden></p></details></section>
   <section class="controller" aria-label="Six chat slots"><div class="screw top-left"></div><div class="screw top-right"></div><div class="screw bottom-left"></div><div class="screw bottom-right"></div><div class="controller-top"><span class="wordmark">GENESIS <b>G2</b></span><span id="controller-agent" class="micro-label">CODEX</span></div><div class="slot-grid" id="slots"></div><div class="controller-bottom"><span class="dots" aria-hidden="true">⠿</span><span>ONE GLANCE. SIX CONVERSATIONS.</span><span class="small-glasses">${icons.glasses}</span></div></section>
   <section class="reader" aria-label="Conversation and composer"><div class="reader-top"><span class="section-label" id="reader-label">LATEST RESPONSE</span><span id="reply-state" class="pill">Choose a chat</span></div><h2 id="chat-title">Room for your next idea.</h2><p id="reader-empty">Select a chat above to open it on your computer and read its latest reply here.</p><div id="reply-text" class="reply-text" hidden></div><pre id="reader-composer" class="reader-composer" hidden aria-label="Current draft and send status"></pre><div id="reply-meta" class="reply-meta"></div><div id="reader-controls" class="reader-controls" hidden><button id="page-prev" class="page-button" aria-label="Newer conversation page">←</button><span id="page-indicator"></span><button id="page-next" class="page-button" aria-label="Older conversation page">→</button><button id="back-to-chats" class="quiet">Back to chats</button></div></section>
   <section class="hud-card" aria-label="Glasses display preview"><div class="section-heading"><div><div class="section-label">IN YOUR LINE OF SIGHT</div><h2>Glasses preview</h2></div><span class="small-glasses">${icons.glasses}</span></div><div class="hud" id="hud"></div><div class="hud-controls"><button data-gesture="up" aria-label="Preview swipe up">↑</button><button data-gesture="select">Tap</button><button data-gesture="down" aria-label="Preview swipe down">↓</button><button data-gesture="back">Back</button><button id="glasses-menu">Menu</button></div><div id="hud-menu" class="hud-menu" hidden><button data-view="slots">Chats</button><button data-view="hosts">Computers</button><button data-view="providers">Agents</button><button id="hud-refresh">Refresh</button></div><p id="gesture-hint" class="hint">Swipe to move · Tap to open or page forward · Double-tap to go back</p><div class="glasses-connection"><span id="glasses-status">Phone preview · Glasses not connected</span><button id="glasses-connect" class="quiet">Connect glasses</button></div></section>
@@ -54,7 +56,13 @@ if (incoming) {
   if (existing >= 0) hosts[existing] = incoming; else hosts.push(incoming);
   try { await bounded(storage.save(hosts), 3500); } catch { bootError = 'Connected for this visit, but pairing could not be saved. Check storage access before closing the app.'; }
 }
-const store = new ControllerStore(new HTTPGateway(), hosts);
+const gateway = new HTTPGateway();
+const store = new ControllerStore(gateway, hosts);
+const originRecovery = new OriginRecovery({ nativeAvailable: nativeTransportAvailable, origin: () => location.origin, hosts: () => store.state.hosts });
+const backgroundPreference = new NativeBackgroundPreference({ nativeAvailable: nativeTransportAvailable, origin: () => location.origin, apply: enabled => { $<HTMLInputElement>('beta-background').checked = enabled; }, saved: saved => { $('background-save-status').hidden = saved; $('background-save-status').textContent = saved ? '' : 'Applies this visit; could not save the choice for next launch.'; } });
+$<HTMLInputElement>('beta-background').addEventListener('change', event => { void backgroundPreference.set((event.target as HTMLInputElement).checked); });
+gateway.setOriginRecovery(originRecovery);
+if (bridgeStorage) await originRecovery.bindBridge(bridgeStorage);
 if (incoming) store.state.hostID = incoming.id;
 const diagnostics = new ConnectionDiagnostics(() => store.state.demo ? null : store.host);
 diagnostics.record('boot', { native: nativeHost ? 1 : 0, phase: 1 });
@@ -181,8 +189,13 @@ async function bindNativePairing() {
   if (!nativeTransportAvailable()) return;
   try {
     const bridge = await bounded(waitForEvenAppBridge(), 3000);
+    void backgroundPreference.bindBridge(bridge);
     const restored = await bounded(storage.bindBridge(bridge, () => store.state.hosts), 4000);
     if (JSON.stringify(restored) !== JSON.stringify(store.state.hosts)) await store.setHosts(restored, store.state.hostID ?? undefined);
+    if (await originRecovery.bindBridge(bridge)) {
+      void originRecovery.warmPairedHosts(gateway); // Enroll every paired Mac, without switching the UI or issuing actions.
+      await store.refresh(); // Retry startup after late native binding.
+    }
   } catch { /* Existing live pairing remains usable; reconnect retries binding. */ }
 }
 function connectGlasses() { void bindNativePairing(); return glasses.connect(); }

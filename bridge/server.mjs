@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { cleanFollow, cleanFeedback, InvalidFollow } from './follow.mjs';
 import { createClaudeReader } from './claude/reader.mjs';
+import { createOriginRecovery, isRecoveryOrigin, OriginRecoveryError } from './origin-recovery.mjs';
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -15,7 +16,8 @@ const providers = new Set(['codex','claude']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const opaque = /^[A-Za-z0-9._:-]{1,256}$/;
 const networkRoutes = new Set(['/','/index.html','/healthz','/api/status','/api/profile','/api/chats',
-  '/api/reply','/api/open','/api/diagnostics','/api/network-diagnostics','/api/follow','/api/follow-feedback']);
+  '/api/reply','/api/open','/api/diagnostics','/api/network-diagnostics','/api/follow','/api/follow-feedback',
+  '/api/origin-recovery/enroll','/api/origin-recovery/renew']);
 function networkPath(pathname) {
   if (networkRoutes.has(pathname)) return pathname;
   if (pathname.startsWith('/api/')) return '/api/other';
@@ -70,13 +72,13 @@ function cleanConversation(source) {
   });
   return {turns,turnsTruncated:source.turnsTruncated === true || turns.some(turn=>turn.truncated)};
 }
-async function readJSONBody(request) {
+async function readJSONBody(request, maximum=8192) {
   if (!(request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json'))
     fault(415,'json_required','This action requires JSON.');
   let bytes=0; const parts=[];
   for await (const part of request) {
     bytes += part.length;
-    if (bytes > 8192) fault(413,'request_too_large','Request is too large.');
+    if (bytes > maximum) fault(413,'request_too_large','Request is too large.');
     parts.push(part);
   }
   try { const value=JSON.parse(Buffer.concat(parts).toString('utf8')); if (!value || Array.isArray(value) || typeof value !== 'object') throw Error(); return value; }
@@ -96,6 +98,7 @@ export function createBridge(config, dependencies={}) {
   if (upstreamAddress.protocol !== 'http:' || upstreamAddress.hostname !== '127.0.0.1' || upstreamAddress.username || upstreamAddress.password || upstreamAddress.pathname !== '/') throw Error('Upstream must be the local Genesis companion.');
   const fetcher=dependencies.fetch ?? fetch;
   const claudeReader=dependencies.readClaudeReply ?? (config.claudeReaderEnabled === true ? createClaudeReader() : null);
+  const originRecovery=createOriginRecovery({path:config.originRecoveryPath,token:config.token,now:dependencies.originRecoveryNow ?? Date.now});
   let openBusy=false;
   const replyFlights=new Map();
   const replyCache=new Map();
@@ -246,11 +249,28 @@ export function createBridge(config, dependencies={}) {
       route=networkPath(target.pathname);
       excludeNetworkDiagnostic=target.pathname==='/api/network-diagnostics' && request.method==='GET';
       const origin=request.headers.origin;
+      const enrolling=target.pathname==='/api/origin-recovery/enroll';
+      const renewing=target.pathname==='/api/origin-recovery/renew';
+      // Only this bootstrap endpoint may answer an unknown local origin.
+      // An OPTIONS response never enrolls anything or exposes an API result.
+      const recoveryBootstrap=renewing && ['OPTIONS','POST'].includes(request.method) && isRecoveryOrigin(origin);
       if (origin!==undefined) {
-        if (!allowedOrigins.has(origin)) fault(403,'origin_denied','This app origin has not been paired with Genesis G2.');
+        if (!recoveryBootstrap && !allowedOrigins.has(origin) && !await originRecovery.isAllowed(origin)) fault(403,'origin_denied','This app origin has not been paired with Genesis G2.');
         cors={'Access-Control-Allow-Origin':origin,'Vary':'Origin'};
       }
-      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.4.0'},cors);
+      if (enrolling || renewing) {
+        if (!origin || target.search || (renewing && !isRecoveryOrigin(origin))) fault(403,'origin_denied','This connection recovery origin is not supported.');
+        if (request.method==='OPTIONS') {
+          const requested=(request.headers['access-control-request-headers'] ?? '').toLowerCase().split(',').map(x=>x.trim()).filter(Boolean);
+          if (request.headers['access-control-request-method']!=='POST' || requested.some(x=>!['authorization','content-type'].includes(x))) fault(403,'preflight_denied','This request is not allowed.');
+          response.writeHead(204,{...cors,'Access-Control-Allow-Methods':'POST, OPTIONS','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Max-Age':'300'}); return response.end();
+        }
+        if (request.method!=='POST') fault(405,'method_not_allowed','Connection recovery requires its dedicated POST request.');
+        if (!tokenMatches(request.headers.authorization,config.token)) fault(401,'not_paired','Pair Genesis G2 with this Mac first.');
+        const body=await readJSONBody(request,512);
+        return json(response,200,await (enrolling ? originRecovery.enroll(body) : originRecovery.renew(origin,body)),cors);
+      }
+      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.4.1'},cors);
       if (target.pathname.startsWith('/api/')) {
         if (request.method==='OPTIONS') {
           if (!origin || !['GET','POST'].includes(request.headers['access-control-request-method'])) fault(403,'preflight_denied','This request is not allowed.');
@@ -293,7 +313,7 @@ export function createBridge(config, dependencies={}) {
         }
         if (request.method==='GET' && target.pathname==='/api/status') {
           const source=await hostStatus();
-          return json(response,200,{version:'0.4.0',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
+          return json(response,200,{version:'0.4.1',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
             id:p.id,label:safeLabel(p.name,p.id),available:p.readiness==='ready' && p.capabilities?.includes('openChat')===true,
             canReadReply:p.readiness==='ready' && (p.id==='codex' || p.id==='claude' && Boolean(claudeReader)),
             reason:p.id==='claude' && !claudeReader ? 'Claude conversation reading is not enabled on this Mac.' : safeLabel(p.reason)
@@ -349,8 +369,9 @@ export function createBridge(config, dependencies={}) {
       response.end(request.method==='HEAD' ? undefined : await readFile(actual));
     } catch (error) {
       if (response.headersSent) return response.destroy();
-      const status=error instanceof Fault ? error.status : 500;
-      json(response,status,{error:{code:error instanceof Fault ? error.code : 'internal_error',message:error instanceof Fault ? error.message : 'Genesis G2 could not complete this request.'}},cors);
+      const known=error instanceof Fault || error instanceof OriginRecoveryError;
+      const status=known ? error.status : 500;
+      json(response,status,{error:{code:known ? error.code : 'internal_error',message:known ? error.message : 'Genesis G2 could not complete this request.'}},cors);
     }
   });
   server.requestTimeout=20_000; server.headersTimeout=10_000; server.keepAliveTimeout=5_000;
@@ -362,6 +383,7 @@ if (process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)
   if (!configPath) { process.stderr.write('Set GENESIS_G2_CONFIG to the private config file.\n'); process.exit(1); }
   try {
     const config=JSON.parse(await readFile(configPath,'utf8'));
+    config.originRecoveryPath ??= resolve(dirname(configPath),'origin-recovery.json');
     const server=createBridge(config);
     server.on('error',()=>{process.stderr.write('Genesis G2 could not listen on its local port.\n');process.exitCode=1;});
     server.listen(config.port ?? 18767,'127.0.0.1',()=>process.stdout.write('Genesis G2 bridge ready on loopback.\n'));

@@ -1,3 +1,4 @@
+import type { OriginRecoveryPort } from './origin-recovery';
 import type { Chat, ConversationTurn, DisplayState, FollowFeedback, FollowSnapshot, Gateway, Host, HostStatus, OpenResult, Provider, Reply, Slot } from './types';
 
 export class GatewayError extends Error {
@@ -71,9 +72,21 @@ export function followValue(raw: unknown): FollowSnapshot {
 export class HTTPGateway implements Gateway {
   // Native WebView fetch requires the global receiver. Storing the unbound
   // function and calling this.fetcher() binds it to this Gateway instead.
-  constructor(private fetcher: typeof fetch = (...args) => globalThis.fetch(...args)) {}
+  constructor(private fetcher: typeof fetch = (...args) => globalThis.fetch(...args), private recovery?: OriginRecoveryPort) {}
+  setOriginRecovery(recovery: OriginRecoveryPort) { this.recovery = recovery; }
   private async request(host: Host, path: string, signal: AbortSignal, body?: unknown): Promise<Record<string, unknown>> {
+    if (signal.aborted) throw new DOMException('Request canceled', 'AbortError');
+    await this.recovery?.beforeRequest(host, signal);
+    try { return await this.requestOnce(host, path, signal, body); }
+    catch (error) {
+      // Only reads may be retried. A lost POST response can mean its action ran.
+      if (body === undefined && !signal.aborted && error instanceof GatewayError && ['unreachable', 'origin_denied'].includes(error.code) && await this.recovery?.recover(host, signal)) return this.requestOnce(host, path, signal);
+      throw error;
+    }
+  }
+  private async requestOnce(host: Host, path: string, signal: AbortSignal, body?: unknown): Promise<Record<string, unknown>> {
     if (!host.token) throw new GatewayError('unpaired', 'Pair this computer to load its chats.');
+    if (signal.aborted) throw new DOMException('Request canceled', 'AbortError');
     const url = new URL(path, normalizeBaseURL(host.baseURL));
     const timeout = new AbortController();
     const abort = () => timeout.abort();
@@ -102,9 +115,18 @@ export class HTTPGateway implements Gateway {
   }
   async status(host: Host, signal: AbortSignal): Promise<HostStatus> {
     const d = await this.request(host, '/api/status', signal); const h = object(d.host);
-    return { host: { id: string(h.id, 500), name: string(h.name, 200) }, version: string(d.version, 100), providers: array(d.providers, 2).map(raw => {
+    const status = { host: { id: string(h.id, 500), name: string(h.name, 200) }, version: string(d.version, 100), providers: array(d.providers, 2).map(raw => {
       const p = object(raw); return { id: providerValue(p.id), label: string(p.label, 100), available: boolean(p.available), canReadReply: boolean(p.canReadReply), ...(typeof p.reason === 'string' ? { reason: p.reason.slice(0, 300) } : {}) };
     }) };
+    // An authenticated, normally allowed status response permits enrollment.
+    // Display updates need not wait for native credential storage/network work.
+    if (this.recovery) {
+      // Probe/route completion aborts its own signal. Enrollment is independent
+      // connection maintenance, still constrained to currently paired credentials.
+      const maintenance = new AbortController(); const timer = setTimeout(() => maintenance.abort(), 12000);
+      void this.recovery.afterStatus(host, maintenance.signal).catch(() => {}).finally(() => clearTimeout(timer));
+    }
+    return status;
   }
   async profile(host: Host, provider: Provider, signal: AbortSignal): Promise<{ provider: Provider; slots: Slot[] }> {
     const d = await this.request(host, `/api/profile?provider=${provider}`, signal);

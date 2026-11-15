@@ -2,7 +2,7 @@
 
 A standalone controller and conversation reader for Even Realities G2. It has its own app ID (`com.pybird.genesisg2`), pairing, browser storage, and Mac bridge. It does not replace Home, the Genesis iPhone controller, or Genesis Mini firmware.
 
-The native iPhone/iPad controller and Mac companion are maintained in the separate [Genesis Microcontroller App repository](https://github.com/rickndanger-ctrl/genesis-microcontroller-app). Use native build 18 or later and the updated companion on every paired Mac. G2 0.4.0 adds local Claude Code conversation reading; see [validation](VALIDATION.md) for deployment and physical-test status.
+The native iPhone/iPad controller and Mac companion are maintained in the separate [Genesis Microcontroller App repository](https://github.com/rickndanger-ctrl/genesis-microcontroller-app). Use native build 18 or later and the updated companion on every paired Mac. G2 0.4.1 adds automatic connection recovery when Even changes its local address, alongside local Claude Code conversation reading; see [validation](VALIDATION.md) for deployment and physical-test status.
 
 This preview opens existing Codex and Claude chats on a paired Mac. Its terminal-style view shows recent **YOU** and **CODEX** or **CLAUDE** messages above a separate draft box. Claude reading requires an identifiable local Claude Code session; ordinary Claude web chats are not supported by this reader. It keeps the six existing slot assignments and colors on the phone; G2 uses monochrome green with A1–A6 / C1–C6 labels. Longer text and older messages have separate pages.
 
@@ -48,9 +48,13 @@ Claude selection, draft preview, and native Send status can follow too. With the
 
 When the current Mac has no active Follow session, G2 can discover exactly one active session on another explicitly paired Mac. It uses each Mac's own token, preserves an active current Mac, rejects ambiguous choices, and sends no chat-open or Send commands while discovering. A failed current connection does not trigger an automatic switch. Choosing **Leave follow** pauses this discovery until **Resume follow** or an explicit different-computer selection.
 
-A same-iPhone workflow requires the installed Even Beta. Inside Genesis G2, enable **Try background relay — Even Beta only**, then open the native Genesis app and enable Follow. Enable this option again after reopening or updating the package; it defaults off. If an iPad still owns the display, either turn its Follow off first, or tap **Take over from iPad**, then **Follow this iPhone**. The native controller must stay open; leaving it intentionally releases Follow. Initial same-phone control is user-confirmed; phone lock is a separate pending test. [Follow protocol](FOLLOW_PROTOCOL.md) documents the display-only boundary.
+A same-iPhone workflow requires the installed Even Beta. Inside Genesis G2, enable **Try background relay — Even Beta only**, then open the native Genesis app and enable Follow. In G2 0.4.1, this explicit choice is saved in Even’s native storage and restored when the app reopens; it defaults off until you enable it. A saved preference cannot prevent iOS from suspending Even. If an iPad still owns the display, either turn its Follow off first, or tap **Take over from iPad**, then **Follow this iPhone**. The native controller must stay open; leaving it intentionally releases Follow. Initial same-phone control is user-confirmed; phone lock is a separate pending test. [Follow protocol](FOLLOW_PROTOCOL.md) documents the display-only boundary.
 
-Installed Even builds may use a loopback WebView origin different from the private QR URL. The first real Beta on this setup used an exact `http://127.0.0.1:<port>` origin. If a freshly installed package cannot connect, inspect the authenticated network diagnostic for its denied origin and add only that observed origin to the private bridge configuration, retaining bearer authentication. Do not use wildcard or opaque-null origins. Restart only the dedicated G2 bridge after a configuration change. Recheck after a full Even restart because the port may change; stability across restarts remains a physical acceptance check. Re-running setup preserves already verified exact origins.
+Even can change its local `http://127.0.0.1:<port>` address when it restarts. In G2 0.4.1, the installed Even app saves a separate recovery credential in Even’s native storage and enrolls it with each paired Mac after a trusted connection. On a later restart, the existing pairing token plus that saved credential authorize only the new exact address. Read-only warm-up enrolls all paired Macs without switching chats. Recovery never replays a chat-open command whose response was lost.
+
+The bridge stores credential hashes in owner-only `origin-recovery.json` beside its configuration. Credentials expire after 90 days without successful enrollment or renewal; rotating the G2 pairing token invalidates them. Remove an installation from that file to revoke its recovery access. The app requires durable native storage and will not enroll credentials saved only in browser storage. Normal API requests retain bearer authentication and exact-origin checks; unknown and opaque-null origins remain blocked.
+
+The first installation of 0.4.1 still needs one trusted connection to save and enroll recovery. If this first launch changes the address before enrollment, inspect the private network diagnostic and add only that observed exact address to each paired bridge configuration once. Restart only the G2 service. Subsequent address changes should use automatic renewal; device acceptance is recorded separately in [validation](VALIDATION.md). Re-running setup preserves already verified exact origins.
 
 ## Build and local setup
 
@@ -60,7 +64,7 @@ Requirements: macOS, Node 22.13 or newer, Apple Swift toolchain, Tailscale, and 
 npm ci
 npm run build
 npm run test:frontend
-node --test tests/bridge.test.mjs
+node --test tests/bridge.test.mjs bridge/origin-recovery.test.mjs
 node --test bridge/claude/reader.test.mjs
 bash bridge/codex/test.sh
 bash bridge/codex/build.sh
@@ -105,7 +109,7 @@ It binds only `127.0.0.1:18767`. Expose it privately in the tailnet:
 /Applications/Tailscale.app/Contents/MacOS/Tailscale serve --bg --https=8453 http://127.0.0.1:18767
 ```
 
-Choose an unused port; preserve other Tailscale Serve entries. Do not use Funnel. The bridge requires its own bearer token, even within the tailnet, and accepts only configured exact browser origins. Add another Mac by installing its own bridge and pairing it from Genesis G2 Settings. Cross-Mac origins must be explicitly allowed in each private config.
+Choose an unused port; preserve other Tailscale Serve entries. Do not use Funnel. The bridge requires its own bearer token, even within the tailnet, and accepts only configured or credential-renewed exact browser origins. Add another Mac by installing its own bridge and pairing it from Genesis G2 Settings. Cross-Mac origins must be explicitly allowed in each private config.
 
 ## Package without publishing
 
@@ -113,7 +117,7 @@ Install the official `@evenrealities/evenhub-cli` if it is not already available
 
 ```sh
 node bridge/package-config.mjs
-evenhub pack .local/app.json dist -o .local/genesis-g2-0.4.0.ehpk --sdk-ver 0.0.16
+evenhub pack .local/app.json dist -o .local/genesis-g2-0.4.1.ehpk --sdk-ver 0.0.16
 ```
 
 `.local`, generated packages, build products, tokens and logs are excluded from Git. The shared `app.json` has an empty network whitelist deliberately; a private package must name its destination explicitly. The package contains no pairing token. Uploading, Beta distribution and public publication are separate from packaging.
@@ -122,7 +126,7 @@ evenhub pack .local/app.json dist -o .local/genesis-g2-0.4.0.ehpk --sdk-ver 0.0.
 
 ## Safety and verification
 
-The bridge exposes read-only status/profile/chat/reply/follow routes, bounded display acknowledgments, and one `openChat` operation. G2 cannot claim native display ownership; only the paired native app can do that. It has no Send, approval, generic shell, arbitrary URL or arbitrary command endpoint. Chat changes are serialized and checked against current account inventory; slot selections are rejected if the mapping has changed. The Codex reader never starts a daemon, resumes a thread or sends a message. Replies and bearer tokens are not logged.
+The bridge exposes read-only status/profile/chat/reply/follow routes, bounded display acknowledgments, narrowly scoped connection-recovery enrollment/renewal, and one `openChat` operation. G2 cannot claim native display ownership; only the paired native app can do that. It has no Send, approval, generic shell, arbitrary URL or arbitrary command endpoint. Chat changes are serialized and checked against current account inventory; slot selections are rejected if the mapping has changed. The Codex reader never starts a daemon, resumes a thread or sends a message. Replies and bearer tokens are not logged.
 
 Connection diagnosis uses an authenticated, bounded in-memory trace: at most 128 records, visible for 15 minutes. It accepts only named connection stages and integer counters. Chat text, chat IDs, device serial numbers, and credentials are rejected. These diagnostics go only to the paired Mac, never an analytics service.
 

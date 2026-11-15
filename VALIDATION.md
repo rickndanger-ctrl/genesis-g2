@@ -1,3 +1,17 @@
+# Genesis G2 0.4.1 automatic recovery
+
+Date: 2026-11-15 (PST). Both Mini bridges are deployed; the private Even Beta is published. Physical restart acceptance is pending below.
+
+- Implemented native-stored, per-Mac recovery credentials with readback before enrollment. Existing bearer authentication plus the saved credential renew only the exact canonical Even loopback origin. State is bounded, atomic, owner-only, hashed, token-scoped, and expires after 90 days without renewal.
+- Both paired Macs receive read-only startup checks and enrollment even if only one owns Follow. Canceled display probes do not cancel bounded enrollment maintenance. Uncertain native writes cannot overtake later credential writes. GET recovery is bounded; an uncertain chat-open POST is never replayed.
+- Explicit background-relay preference is saved only through native Even storage and restored after reopening. It remains off without opt-in, rejects stale read/save callbacks, and reports a failed save. This does not establish iOS background execution or locked-phone reliability.
+- Validation: 194 frontend tests passed, including real HTTP tests for two Macs, two changed Even ports, bridge restart, and a lost chat-open response executed once. 75 bridge/recovery/Claude tests and 86 read-only Codex reader checks passed. TypeScript, production build, and diff checks passed; independent backend/frontend review found no remaining blocking defects.
+- Both live bridges report 0.4.1. Each accepted a paired normal status read (200), rejected a missing token (401) and unregistered normal origin (403), allowed the dedicated renewal preflight (204), and rejected renewal without authentication (401). Both initially reported no recovery installations, as expected before the new Even client enrolls.
+- Private package: com.pybird.genesisg2 0.4.1, 65,393 bytes, SDK 0.0.16, minimum Even app 2.2.10. SHA-256: `908118cb3f6cf5d1a088257976d09caac02a917e7325b1e49b447ced6363576e`. Input privacy scan found neither Mac pairing token. Even Hub reload showed **Beta build v0.4.1 Published** for the existing one-person group; local proof `.local/beta-v041-proof.jpg`.
+- Rollback copies of both runtimes/configuration remain private. No native iPhone/iPad app or firmware changed. Neo has not been deployed by this recovery update.
+
+Pending: install/open the new Even Beta, enroll both Mac credentials, then verify a full Even restart and changed port without adding that new origin manually. A newly installed build may need one initial trusted-origin bootstrap before it can enroll.
+
 # Genesis G2 connection recovery — 2026-11-15
 
 - The user reported Hold to Talk unavailable on iPad with Mini 1 / Claude, then confirmed C1 opened the assigned Mac chat and a new held/released sentence appeared in the native draft. Native microphone capture is physically confirmed for that check; no native app or firmware change was made.

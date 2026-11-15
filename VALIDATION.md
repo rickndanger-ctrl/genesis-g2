@@ -17,17 +17,19 @@ Date: 2026-11-14. Target: Mac Mini 2. This records a working private preview, no
 - Official CLI produced `.local/genesis-g2-0.1.0.ehpk`; SDK 0.0.16 and minimum Even app 2.2.10 stamped successfully.
 - Source credential scan passed. The package contains generic UI and an exact network origin, not pairing credentials. The private QR and pairing URL are excluded from source control.
 - Existing `genesis-microcontroller-app` checkout remained clean. Home, current controller app installations and physical firmware were not changed.
+- Physical connection after the browser repair: the user confirmed both "Mac connected · Mini 2" and A1–A6 visible on the G2. The private trace independently recorded native Even transport, connected G2 device state, successful startup acknowledgment, successful list rebuild, and successful Mac status/profile/chat requests.
+- Physical A1 flow: the user confirmed tapping A1 on the glasses opens its assigned Codex chat on Mini 2 and displays the reply on the glasses.
+- Physical second-thread flow: the user confirmed double-tap back, swipe to A2, and tap open A2 on Mini 2 and replace the glasses reply. The trace independently recorded glasses text swipes, double-tap back, a native list selection for row 1, and successful open/reply requests. Core chat selection and reading are accepted on real G2 hardware.
 
 ## Pending physical acceptance
 
-1. Confirm a real G2 connection and A1–A6 on the glasses, then swipe between A1 and A2; tap each and confirm the assigned Mac chat opens and the matching reply appears on the glasses.
-2. Page a longer reply; double-tap back; change agent from the Even contextual menu and repeat navigation. Claude reply reading must display its explicit unavailable state.
-3. Change agents on the phone while looking at a glasses list. A stale tap must never open a different agent's slot.
-4. Exit and reopen the app; disconnect and reconnect the glasses. Confirm a fresh screen and working gestures.
+1. Page a longer reply; change agent from the Even contextual menu and repeat navigation. Claude reply reading must display its explicit unavailable state.
+2. Change agents on the phone while looking at a glasses list. A stale tap must never open a different agent's slot.
+3. Disconnect and reconnect the glasses. Confirm a fresh screen and working gestures. Developer-page reopen and connection have already worked during setup.
 
-The user clarified the initial display response: A1 is not visible in the glasses and the phone app says disconnected. The earlier response was not evidence of a G2 render. Physical display, input and reply acceptance are all pending while connection startup is diagnosed.
+During the first check, the user clarified that A1 was not visible in the glasses and the app was disconnected. That initial response was not counted as a G2 render. The later confirmations below apply to the repaired build.
 
-The user confirmed Genesis G2 was opened inside the Even app and reported the Mac-unreachable message. A native browser fetch receiver defect was reproduced and fixed in both API and diagnostic clients. The repaired build is served at the same private URL. The app also now separates Mac/glasses states at the top, handles late native bridge availability, reports phase-specific errors, and marks glasses connected only after display acknowledgment. Reopening this repaired build and physical G2 acceptance are pending.
+The user confirmed Genesis G2 was opened inside the Even app and reported the Mac-unreachable message. A native browser fetch receiver defect was reproduced and fixed in both API and diagnostic clients. The repaired build is served at the same private URL. The app also now separates Mac/glasses states at the top, handles late native bridge availability, reports phase-specific errors, and marks glasses connected only after display acknowledgment. After reopening this repaired build, the user confirmed the Mac connection, visible G2 chat slots, opening A1 on Mini 2, reading its reply on the glasses, and switching to A2 with the matching reply.
 
 ## Deliberate limits
 

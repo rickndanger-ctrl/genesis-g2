@@ -7,6 +7,7 @@ import { HostStorage, validatedHost } from './storage';
 import { startup } from './startup';
 import { providerName, slotName, SLOT_COLORS, type Host } from './types';
 import { replyPages } from './pagination';
+import { followPresentation } from './follow';
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk';
 
 const esc = (text: string) => text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -26,16 +27,17 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
 <main class="shell">
   <header class="brand"><div><div class="eyebrow">G E N E S I S</div><h1>Your agents.<br><span>Within a glance.</span></h1></div><button class="icon-button" id="settings-open" aria-label="Pair computers and settings">${icons.settings}</button></header>
-  <section class="route-card" aria-label="Computer and agent"><div class="section-label">CONNECTED WORKSPACE <span class="version">G2 / 01</span></div><nav class="host-switch" id="hosts" aria-label="Computers"></nav><nav class="provider-switch" id="providers" aria-label="Agent"><button data-provider="codex"><span class="provider-icon">⌘</span> Codex</button><button data-provider="claude"><span class="provider-icon">✳</span> Claude</button></nav><div class="connection-row"><span id="connection"></span><button id="refresh" class="icon-button small" aria-label="Refresh computer and chats">${icons.refresh}</button></div><div class="top-glasses"><div><strong>Glasses</strong><span id="glasses-status-top">Not connected yet</span></div><button id="glasses-connect-top" class="primary">Connect glasses</button></div></section>
+  <section class="route-card" aria-label="Computer and agent"><div class="section-label">CONNECTED WORKSPACE <span class="version">G2 / 02</span></div><nav class="host-switch" id="hosts" aria-label="Computers"></nav><nav class="provider-switch" id="providers" aria-label="Agent"><button data-provider="codex"><span class="provider-icon">⌘</span> Codex</button><button data-provider="claude"><span class="provider-icon">✳</span> Claude</button></nav><div class="connection-row"><span id="connection"></span><button id="refresh" class="icon-button small" aria-label="Refresh computer and chats">${icons.refresh}</button></div><div class="top-glasses"><div><strong>Glasses</strong><span id="glasses-status-top">Not connected yet</span></div><button id="glasses-connect-top" class="primary">Connect glasses</button></div></section>
   <div id="preview-banner" class="preview-banner" hidden><span>DEMO · Sample chats, no computer connected</span><button id="leave-demo">Exit preview</button></div>
   <div id="notice" class="notice" role="alert" hidden></div>
   <section id="onboarding" class="onboarding" hidden><div class="optical-mark">${icons.glasses}</div><h2>A little closer to your work.</h2><p>Pair a Genesis bridge to bring your chats into view. Your existing controller keeps its own settings.</p><div class="button-row"><button class="primary" id="pair-start">Pair a computer</button><button class="quiet" id="demo-start">Explore preview</button></div></section>
+  <section class="follow-card" aria-label="Native controller follow"><div class="section-label">NATIVE CONTROLLER</div><h2 id="follow-title">Use Genesis on iPhone or iPad.</h2><p id="follow-status" role="status">Enable Follow this controller in Genesis to show its selected chat, draft, and reply here.</p><div class="follow-actions"><button id="follow-leave" class="quiet" hidden>Leave follow</button><button id="follow-resume" class="primary" hidden>Resume follow</button></div><details><summary>Using this iPhone as the controller?</summary><p>Start with Genesis on iPad and keep Even open on iPhone. Same-iPhone control needs an Even Beta install and a background connection test; QR preview does not establish that it works.</p><label class="background-option"><input id="beta-background" type="checkbox" /> Try background relay — Even Beta only</label></details></section>
   <section class="controller" aria-label="Six chat slots"><div class="screw top-left"></div><div class="screw top-right"></div><div class="screw bottom-left"></div><div class="screw bottom-right"></div><div class="controller-top"><span class="wordmark">GENESIS <b>G2</b></span><span id="controller-agent" class="micro-label">CODEX</span></div><div class="slot-grid" id="slots"></div><div class="controller-bottom"><span class="dots" aria-hidden="true">⠿</span><span>ONE GLANCE. SIX CONVERSATIONS.</span><span class="small-glasses">${icons.glasses}</span></div></section>
   <section class="reader" aria-label="Latest assistant response"><div class="reader-top"><span class="section-label" id="reader-label">LATEST RESPONSE</span><span id="reply-state" class="pill">Choose a chat</span></div><h2 id="chat-title">Room for your next idea.</h2><p id="reader-empty">Select a chat above to open it on your computer and read its latest reply here.</p><div id="reply-text" class="reply-text" hidden></div><div id="reply-meta" class="reply-meta"></div><div id="reader-controls" class="reader-controls" hidden><button id="page-prev" class="page-button" aria-label="Previous reply page">←</button><span id="page-indicator"></span><button id="page-next" class="page-button" aria-label="Next reply page">→</button><button id="back-to-chats" class="quiet">Back to chats</button></div></section>
-  <section class="hud-card" aria-label="Glasses display preview"><div class="section-heading"><div><div class="section-label">IN YOUR LINE OF SIGHT</div><h2>Glasses view</h2></div><span class="small-glasses">${icons.glasses}</span></div><div class="hud" id="hud"></div><div class="hud-controls"><button data-gesture="up" aria-label="Preview swipe up">↑</button><button data-gesture="select">Tap</button><button data-gesture="down" aria-label="Preview swipe down">↓</button><button data-gesture="back">Back</button><button id="glasses-menu">Menu</button></div><div id="hud-menu" class="hud-menu" hidden><button data-view="slots">Chats</button><button data-view="hosts">Computers</button><button data-view="providers">Agents</button><button id="hud-refresh">Refresh</button></div><p class="hint">Swipe to move · Tap to open or page forward · Double-tap to go back</p><div class="glasses-connection"><span id="glasses-status">Phone preview · Glasses not connected</span><button id="glasses-connect" class="quiet">Connect glasses</button></div></section>
+  <section class="hud-card" aria-label="Glasses display preview"><div class="section-heading"><div><div class="section-label">IN YOUR LINE OF SIGHT</div><h2>Glasses view</h2></div><span class="small-glasses">${icons.glasses}</span></div><div class="hud" id="hud"></div><div class="hud-controls"><button data-gesture="up" aria-label="Preview swipe up">↑</button><button data-gesture="select">Tap</button><button data-gesture="down" aria-label="Preview swipe down">↓</button><button data-gesture="back">Back</button><button id="glasses-menu">Menu</button></div><div id="hud-menu" class="hud-menu" hidden><button data-view="slots">Chats</button><button data-view="hosts">Computers</button><button data-view="providers">Agents</button><button id="hud-refresh">Refresh</button></div><p id="gesture-hint" class="hint">Swipe to move · Tap to open or page forward · Double-tap to go back</p><div class="glasses-connection"><span id="glasses-status">Phone preview · Glasses not connected</span><button id="glasses-connect" class="quiet">Connect glasses</button></div></section>
   <details class="connection-details"><summary>Connection details</summary><p class="hint">Technical connection events only. No messages, speech, names, or pairing tokens.</p><pre id="diagnostic-events"></pre><button id="copy-diagnostics" class="quiet">Copy connection details</button><span id="diagnostic-copy-result" role="status"></span></details>
   <section class="chat-library"><div class="section-heading"><h2>All chats</h2><span id="chat-count" class="pill">0</span></div><label class="search"><span aria-hidden="true">⌕</span><input id="chat-search" type="search" placeholder="Find a conversation" autocomplete="off" /></label><div id="chat-list"></div></section>
-  <footer class="footnote"><span>Genesis G2 · Reader preview</span><p>Open chats and read replies. Voice, Send, and artifact controls are not part of this version.</p></footer>
+  <footer class="footnote"><span>Genesis G2 · Native follow</span><p>Use the native Genesis controller for Talk and Send. G2 follows its chat, draft, and reply, or works independently as a chat reader. Claude reply reading is not connected yet.</p></footer>
 </main>
 <dialog id="settings"><form id="pair-form"><div class="dialog-top"><div class="eyebrow">GENESIS G2</div><button type="button" id="settings-close" class="icon-button" aria-label="Close settings">×</button></div><h2>Pair your workspace.</h2><p class="muted">Use the connection details from your Genesis G2 bridge. Each computer has its own private pairing token.</p><label>Computer name<input name="name" placeholder="Mini 2" maxlength="80" required autocomplete="off" /></label><label>Bridge address<input name="baseURL" type="url" placeholder="https://your-computer.example.ts.net" required autocomplete="off" autocapitalize="none" spellcheck="false" /></label><label>Pairing token<input name="token" type="password" placeholder="Paste the private token" required autocomplete="off" autocapitalize="none" spellcheck="false" /></label><p id="pair-error" class="form-error" role="alert"></p><button class="primary" type="submit">Save and connect</button><div class="saved-hosts"><h3>Paired computers</h3><div id="saved-hosts"></div></div><p class="hint">Pairing stays on this device. Nothing is added to Home or bundled into the app download.</p></form></dialog>`;
 
@@ -70,12 +72,13 @@ function renderSavedHosts() {
 function renderChats() {
   const filtered = store.state.chats.filter(c => c.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   $('chat-count').textContent = String(store.state.chats.length);
-  $('chat-list').innerHTML = filtered.length ? filtered.slice(0, 150).map(c => `<button class="chat-row ${store.state.selected?.id === c.id ? 'selected' : ''}" data-chat="${esc(c.id)}"><span>${esc(c.title || 'Untitled chat')}</span>${icons.arrow}</button>`).join('') : `<p class="empty-list">${search ? 'No chats match that search.' : 'Your available chats appear here after connecting.'}</p>`;
+  $('chat-list').innerHTML = filtered.length ? filtered.slice(0, 150).map(c => `<button class="chat-row ${store.state.selected?.id === c.id ? 'selected' : ''}" data-chat="${esc(c.id)}" ${store.manualControlsPaused ? 'disabled' : ''}><span>${esc(c.title || 'Untitled chat')}</span>${icons.arrow}</button>`).join('') : `<p class="empty-list">${search ? 'No chats match that search.' : 'Your available chats appear here after connecting.'}</p>`;
 }
 store.subscribe(state => {
   const host = store.host;
+  const following = Boolean(state.follow); const paused = store.manualControlsPaused; const follow = followPresentation(state);
   $('hosts').innerHTML = state.hosts.map(h => `<button data-host="${esc(h.id)}" class="${!state.demo && h.id === state.hostID ? 'active' : ''}"><span aria-hidden="true">▱</span>${esc(h.name)}</button>`).join('') + `<button id="host-add" class="${state.hosts.length ? 'add-host' : ''}" aria-label="Pair a computer">${state.hosts.length ? '+' : '+ Pair a computer'}</button>`;
-  document.querySelectorAll<HTMLButtonElement>('[data-provider]').forEach(button => { const selected = button.dataset.provider === state.provider; button.classList.toggle('active', selected); button.setAttribute('aria-pressed', String(selected)); });
+  document.querySelectorAll<HTMLButtonElement>('[data-provider]').forEach(button => { const selected = button.dataset.provider === state.provider; button.classList.toggle('active', selected); button.setAttribute('aria-pressed', String(selected)); button.disabled = paused; });
   $('connection').innerHTML = `<i class="status-dot ${state.demo ? 'demo' : state.connected ? 'online' : ''}"></i>${state.demo ? 'Demo · No Mac connected' : state.busy && !state.connected ? 'Mac · Connecting…' : state.connected ? `Mac connected · ${esc(host?.name ?? '')}` : host ? `Mac offline · ${esc(host.name)}` : 'Mac · Not paired'}`;
   const macStatus = `${state.demo}:${state.connected}:${state.busy}:${state.provider}`;
   if (macStatus !== lastMacStatus) { lastMacStatus = macStatus; diagnostics.record('mac_status', { connected: state.connected ? 1 : 0, phase: state.busy ? 1 : 0, source: state.provider === 'codex' ? 1 : 2, status: state.demo ? 1 : 0 }); }
@@ -86,24 +89,33 @@ store.subscribe(state => {
   $('notice').hidden = !error;
   $('notice').textContent = error ?? '';
   $('controller-agent').textContent = providerName(state.provider).toUpperCase();
-  $('slots').innerHTML = state.slots.map(s => `<button class="slot ${state.selectedSlot === s.slot ? 'selected' : ''} ${s.kind !== 'chat' ? 'unassigned' : ''}" data-slot="${s.slot}" style="--slot-color:${SLOT_COLORS[s.slot - 1]}" aria-label="${esc(slotName(state.provider, s.slot) + ': ' + s.label)}" ${!state.connected ? 'disabled' : ''}><div class="slot-top"><span class="slot-dot"></span><b>${slotName(state.provider, s.slot)}</b><span class="slot-corner">${s.kind === 'shortcut' ? '↗' : '⌁'}</span></div><span class="slot-title">${esc(s.label)}</span><span class="slot-bottom">${s.kind === 'shortcut' ? 'Shortcut · unavailable here' : s.kind === 'chat' ? 'Open conversation' : 'No chat assigned'}</span></button>`).join('');
-  const pages = replyPages(state.reply?.text ?? ''); const page = Math.min(state.page, pages.length - 1);
-  $('reader-label').textContent = state.demo ? 'SAMPLE RESPONSE' : 'LATEST RESPONSE';
-  $('chat-title').textContent = state.selected?.title ?? 'Room for your next idea.';
-  $('reply-state').textContent = state.busy ? 'Loading…' : state.reply?.phase === 'commentary' ? 'Progress update' : state.reply?.phase === 'partial_answer' ? 'Partial reply' : state.reply?.status === 'working' ? 'Working' : state.reply?.status === 'done' && state.reply?.phase === 'final_answer' ? 'Completed reply' : state.reply ? 'Latest reply' : state.selected ? 'No reply yet' : 'Choose a chat';
-  $('reader-empty').hidden = Boolean(state.selected);
-  $('reply-text').hidden = !state.selected;
-  $('reply-text').textContent = state.reply ? pages[page] : state.busy ? 'Opening your conversation…' : 'No assistant reply is available yet. Refresh to check again.';
-  $('reply-meta').textContent = state.selected ? [state.demo ? 'Sample content only' : state.openStatus === 'requested' ? 'Open requested on computer' : state.openStatus === 'confirmed' ? 'Chat opened on computer' : '', state.reply?.truncated ? 'Reply excerpt · Open the computer for the full response' : ''].filter(Boolean).join(' · ') : '';
-  $('reader-controls').hidden = !state.selected;
+  $('slots').innerHTML = state.slots.map(s => `<button class="slot ${state.selectedSlot === s.slot ? 'selected' : ''} ${s.kind !== 'chat' ? 'unassigned' : ''}" data-slot="${s.slot}" style="--slot-color:${SLOT_COLORS[s.slot - 1]}" aria-label="${esc(slotName(state.provider, s.slot) + ': ' + s.label)}" ${!state.connected || paused ? 'disabled' : ''}><div class="slot-top"><span class="slot-dot"></span><b>${slotName(state.provider, s.slot)}</b><span class="slot-corner">${s.kind === 'shortcut' ? '↗' : '⌁'}</span></div><span class="slot-title">${esc(s.label)}</span><span class="slot-bottom">${s.kind === 'shortcut' ? 'Shortcut · unavailable here' : s.kind === 'chat' ? 'Open conversation' : 'No chat assigned'}</span></button>`).join('');
+  $('follow-title').textContent = state.follow ? `Following ${state.follow.sourceName} · ${providerName(state.provider)}` : state.followEnabled ? 'Use Genesis on iPhone or iPad.' : 'Manual glasses controls';
+  $('follow-status').textContent = state.follow ? `${state.selected?.title ?? 'Home'} · Use the native controller to select chats, talk, send, and turn pages.` : state.followNotice ?? 'Enable Follow this controller in Genesis to show its selected chat, draft, and reply here.';
+  $('follow-leave').hidden = !paused;
+  $('follow-resume').hidden = state.followEnabled && !state.followEnded;
+  $('gesture-hint').textContent = following ? 'Following native Genesis · Glasses gestures are paused. Leave follow to use them.' : 'Swipe to move · Tap to open or page forward · Double-tap to go back';
+  document.querySelectorAll<HTMLButtonElement>('[data-gesture], [data-view], #glasses-menu').forEach(button => { button.disabled = paused; });
+  const pages = follow?.pages ?? replyPages(state.reply?.text ?? ''); const page = follow?.page ?? Math.min(state.page, pages.length - 1);
+  $('reader-label').textContent = follow ? `NATIVE ${follow.label.toUpperCase()}` : state.demo ? 'SAMPLE RESPONSE' : 'LATEST RESPONSE';
+  $('chat-title').textContent = state.selected?.title ?? (following ? `Following ${state.follow!.sourceName}` : 'Room for your next idea.');
+  $('reply-state').textContent = follow ? [follow.label, follow.receipt].filter(Boolean).join(' · ') : state.busy ? 'Loading…' : state.reply?.phase === 'commentary' ? 'Progress update' : state.reply?.phase === 'partial_answer' ? 'Partial reply' : state.reply?.status === 'working' ? 'Working' : state.reply?.status === 'done' && state.reply?.phase === 'final_answer' ? 'Completed reply' : state.reply ? 'Latest reply' : state.selected ? 'No reply yet' : 'Choose a chat';
+  $('reader-empty').hidden = Boolean(state.selected) || following;
+  $('reply-text').hidden = !state.selected && !following;
+  $('reply-text').textContent = follow?.content ?? (state.reply ? pages[page] : state.busy ? 'Opening your conversation…' : 'No assistant reply is available yet. Refresh to check again.');
+  $('reply-meta').textContent = follow ? `Controlled by ${state.follow!.sourceName} · ${follow.truncated ? 'Excerpt · ' : ''}Talk and Send stay in Genesis` : state.selected ? [state.demo ? 'Sample content only' : state.openStatus === 'requested' ? 'Open requested on computer' : state.openStatus === 'confirmed' ? 'Chat opened on computer' : '', state.reply?.truncated ? 'Reply excerpt · Open the computer for the full response' : ''].filter(Boolean).join(' · ') : '';
+  $('reader-controls').hidden = !state.selected && !following;
   $('page-indicator').textContent = `${page + 1} / ${pages.length}`;
-  $<HTMLButtonElement>('page-prev').disabled = page === 0;
-  $<HTMLButtonElement>('page-next').disabled = page >= pages.length - 1;
+  $<HTMLButtonElement>('page-prev').disabled = following || page === 0;
+  $<HTMLButtonElement>('page-next').disabled = following || page >= pages.length - 1;
+  $<HTMLButtonElement>('back-to-chats').disabled = following;
   const frame = glassesFrame(state, host?.name ?? 'Pair a computer');
   $('hud').innerHTML = `<div class="hud-title">${esc(frame.title)}</div>${frame.kind === 'list' ? `<ol>${frame.items.map((item, i) => `<li class="${state.focus === i ? 'focused' : ''}">${esc(item)}</li>`).join('')}</ol>` : `<pre>${esc(frame.content)}</pre>`}<div class="hud-footer">${esc(frame.footer)}</div>`;
   renderChats(); glasses.render(state);
 });
 
+$('follow-leave').onclick = () => void store.leaveFollow();
+$('follow-resume').onclick = () => void store.resumeFollow();
 $('settings-open').onclick = openSettings;
 $('settings-close').onclick = () => settings.close();
 $('pair-start').onclick = openSettings;
@@ -113,8 +125,8 @@ $('refresh').onclick = () => { bootError = null; void store.refresh(); };
 $('back-to-chats').onclick = () => store.back();
 $('page-prev').onclick = () => store.turnPage(-1, replyPages(store.state.reply?.text ?? '').length);
 $('page-next').onclick = () => store.turnPage(1, replyPages(store.state.reply?.text ?? '').length);
-$('glasses-connect').onclick = () => void glasses.connect();
-$('glasses-connect-top').onclick = () => void glasses.connect();
+$('glasses-connect').onclick = () => void connectGlasses();
+$('glasses-connect-top').onclick = () => void connectGlasses();
 $('copy-diagnostics').onclick = async () => {
   try { await navigator.clipboard.writeText(JSON.stringify(diagnostics.snapshot(), null, 2)); $('diagnostic-copy-result').textContent = 'Copied'; }
   catch { $('diagnostic-copy-result').textContent = 'Copy is unavailable here. The details are shown above.'; }
@@ -155,12 +167,24 @@ $('saved-hosts').onclick = async event => {
 };
 
 // Poll only the current read route. No prompt or mic action can be sent by polling.
-setInterval(() => { if (!document.hidden && store.state.view === 'reader' && store.state.openStatus && !store.state.busy) void store.refreshReply(); }, 5000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) void store.refresh(); });
+setInterval(() => { if (!store.state.follow && !document.hidden && store.state.view === 'reader' && store.state.openStatus && !store.state.busy) void store.refreshReply(); }, 5000);
+// Background relay is an explicit Beta experiment, never a QR-preview promise.
+const canPollFollow = () => !document.hidden || (nativeTransportAvailable() && $<HTMLInputElement>('beta-background').checked);
+setInterval(() => { store.expireFollow(); if (canPollFollow()) void store.pollFollow(); }, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { store.expireFollow(); void store.pollFollow(); if (!store.state.follow) void store.refresh(); } });
 if (hosts.length) void store.refresh();
+async function bindNativePairing() {
+  if (!nativeTransportAvailable()) return;
+  try {
+    const bridge = await bounded(waitForEvenAppBridge(), 3000);
+    const restored = await bounded(storage.bindBridge(bridge, () => store.state.hosts), 4000);
+    if (JSON.stringify(restored) !== JSON.stringify(store.state.hosts)) await store.setHosts(restored, store.state.hostID ?? undefined);
+  } catch { /* Existing live pairing remains usable; reconnect retries binding. */ }
+}
+function connectGlasses() { void bindNativePairing(); return glasses.connect(); }
 let automaticConnectStarted = false;
 const connectWhenNativeReady = () => {
-  if (!automaticConnectStarted && nativeTransportAvailable()) { automaticConnectStarted = true; void glasses.connect(); }
+  if (!automaticConnectStarted && nativeTransportAvailable()) { automaticConnectStarted = true; void connectGlasses(); }
 };
 window.addEventListener('flutterInAppWebViewPlatformReady', connectWhenNativeReady);
 window.addEventListener('evenAppBridgeReady', connectWhenNativeReady);

@@ -11,6 +11,12 @@ export function truncateUTF8(text: string, max: number): string {
 export function replyPages(text: string, width = 42, rows = 7): string[] {
   const clean = plainText(text);
   if (!clean) return ['No assistant reply is available yet.'];
+  return textPages(clean, width, rows);
+}
+// Drafts are user-authored text: do not strip Markdown or change their content.
+export function textPages(text: string, width = 42, rows = 7): string[] {
+  const clean = text.replace(/\r\n?/g, '\n');
+  if (!clean.trim()) return ['Your draft will appear here.'];
   const lines: string[] = [];
   for (const paragraph of clean.split('\n')) {
     if (!paragraph.trim()) { lines.push(''); continue; }

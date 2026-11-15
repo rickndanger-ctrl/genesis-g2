@@ -1,4 +1,4 @@
-import type { Chat, Gateway, Host, HostStatus, OpenResult, Provider, Reply, Slot } from './types';
+import type { Chat, DisplayState, FollowFeedback, FollowSnapshot, Gateway, Host, HostStatus, OpenResult, Provider, Reply, Slot } from './types';
 
 export class GatewayError extends Error {
   constructor(public code: string, message: string) { super(message); }
@@ -30,6 +30,32 @@ const array = (value: unknown, limit: number): unknown[] => {
   if (!Array.isArray(value) || value.length > limit) throw new GatewayError('invalid_response', 'The bridge returned an invalid list.');
   return value;
 };
+const integer = (value: unknown, max: number): number => {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > max) throw new GatewayError('invalid_response', 'The native controller returned invalid display state.');
+  return value;
+};
+export function followValue(raw: unknown): FollowSnapshot {
+  const d = object(raw);
+  if (d.version !== 1 || typeof d.active !== 'boolean') throw new GatewayError('invalid_response', 'This display session is not supported.');
+  const base = { version: 1 as const, hostID: string(d.hostID, 500), revision: integer(d.revision, Number.MAX_SAFE_INTEGER) };
+  if (!d.active) return { ...base, active: false, ...(typeof d.supported === 'boolean' ? { supported: d.supported } : {}) };
+  const s = object(d.state); const expiresAt = string(d.expiresAt, 100); const draft = string(s.draft, 32000);
+  if (!['iPhone', 'iPad'].includes(String(d.sourceName)) || !Number.isFinite(Date.parse(expiresAt)) ||
+    !['home', 'reply', 'draft'].includes(String(s.view)) || !['none', 'queued', 'confirmed', 'uncertain', 'failed'].includes(String(s.sendState)) ||
+    typeof s.recording !== 'boolean' || Array.from(draft).length > 16000) throw new GatewayError('invalid_response', 'The native controller returned invalid display state.');
+  const chatID = s.chatID == null ? null : string(s.chatID, 500);
+  if (s.view !== 'home' && !chatID) throw new GatewayError('invalid_response', 'The display session has no selected chat.');
+  let feedback: Extract<FollowSnapshot, { active: true }>['feedback'];
+  if (d.feedback != null) {
+    const f = object(d.feedback); const pageCount = integer(f.pageCount, 1000); const renderedPage = integer(f.renderedPage, 999);
+    if (f.revision !== base.revision || typeof f.connected !== 'boolean' || pageCount < 1 || renderedPage >= pageCount) throw new GatewayError('invalid_response', 'The display acknowledgment is invalid.');
+    feedback = { revision: base.revision, pageCount, renderedPage, connected: f.connected };
+  }
+  return { ...base, active: true, sourceID: string(d.sourceID, 500), sourceName: d.sourceName as 'iPhone' | 'iPad', expiresAt,
+    ...(typeof d.chatTitle === 'string' ? { chatTitle: string(d.chatTitle, 2000) } : {}),
+    ...(feedback ? { feedback } : {}),
+    state: { provider: providerValue(s.provider), chatID, slotIndex: s.slotIndex == null ? null : integer(s.slotIndex, 5), view: s.view as DisplayState['view'], page: integer(s.page, 999), draft, recording: s.recording, sendState: s.sendState as DisplayState['sendState'], refreshNonce: integer(s.refreshNonce, Number.MAX_SAFE_INTEGER) } };
+}
 
 export class HTTPGateway implements Gateway {
   // Native WebView fetch requires the global receiver. Storing the unbound
@@ -92,5 +118,11 @@ export class HTTPGateway implements Gateway {
   async reply(host: Host, provider: Provider, chatID: string, signal: AbortSignal): Promise<Reply> {
     const d = await this.request(host, `/api/reply?provider=${provider}&chatID=${encodeURIComponent(chatID)}`, signal);
     return { provider: providerValue(d.provider), chatID: string(d.chatID, 500), title: string(d.title, 2000), text: string(d.text), revision: string(d.revision, 200), updatedAt: d.updatedAt == null ? null : string(d.updatedAt, 200), status: ['working', 'done', 'idle'].includes(String(d.status)) ? d.status as Reply['status'] : 'unknown', truncated: boolean(d.truncated), phase: ['final_answer', 'partial_answer', 'commentary'].includes(String(d.phase)) ? d.phase as Reply['phase'] : 'unknown' };
+  }
+  async follow(host: Host, signal: AbortSignal): Promise<FollowSnapshot> {
+    return followValue(await this.request(host, '/api/follow', signal));
+  }
+  async followFeedback(host: Host, feedback: FollowFeedback, signal: AbortSignal): Promise<FollowSnapshot> {
+    return followValue(await this.request(host, '/api/follow-feedback', signal, feedback));
   }
 }

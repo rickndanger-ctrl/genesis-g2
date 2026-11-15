@@ -13,12 +13,13 @@ const hostID='33333333-3333-4333-8333-333333333333';
 const origin='https://example.test:8453';
 const profile={provider:'codex',revision:1,slots:Array.from({length:6},(_,index)=>({index,kind:index===0 ? 'chat' : index===1 ? 'action' : 'empty',title:index===0 ? 'First thread' : index===1 ? 'Send prompt' : '',targetID:index===0 ? id : index===1 ? 'sendPrompt' : ''}))};
 async function fixture(t, options={}) {
-  const commands=[],reads=[];
+  const commands=[],reads=[],feedback=[];
   const directory=await mkdtemp(join(tmpdir(),'genesis-g2-test-'));
   await writeFile(join(directory,'index.html'),'<title>Genesis G2</title>');
   const server=createBridge({token,allowedOrigins:[origin],distPath:directory}, {
     upstreamToken:'fixture-upstream-token',
     diagnosticNow:options.diagnosticNow,
+    followNow:options.followNow,
     fetch:async(url,init)=> {
       assert.equal(init.headers.Authorization,'Bearer fixture-upstream-token');
       assert.equal(new URL(url).origin,'http://127.0.0.1:18765');
@@ -26,6 +27,8 @@ async function fixture(t, options={}) {
       const path=new URL(url).pathname;
       let result;
       if (path==='/v1/status') result={hostID,hostName:'Fixture Mac',providers:[{id:'codex',name:'Codex',readiness:'ready',capabilities:['openChat']},{id:'claude',name:'Claude',readiness:'ready',capabilities:['openChat']}]};
+      else if (path==='/v1/display-session') return options.follow ? options.follow() : new Response('{}',{status:404});
+      else if (path==='/v1/display-feedback') { feedback.push(JSON.parse(init.body)); return options.feedback ? options.feedback() : options.follow(); }
       else if (path==='/v1/chats') result={chats:[{id,title:'First thread',state:'Saved'},{id:second,title:'Second thread',state:'Saved'}]};
       else if (path==='/v1/profile') result=profile;
       else if (path==='/v1/commands') { commands.push(JSON.parse(init.body)); if (options.commandDelay) await new Promise(resolve=>setTimeout(resolve,options.commandDelay)); result={status:'confirmed'}; }
@@ -42,8 +45,66 @@ async function fixture(t, options={}) {
   const base=`http://127.0.0.1:${server.address().port}`;
   t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await rm(directory,{recursive:true,force:true});});
   const request=(path,init={})=>fetch(base+path,{...init,headers:{Authorization:`Bearer ${token}`,...init.headers}});
-  return {request,commands,reads,base};
+  return {request,commands,reads,feedback,base};
 }
+const displayState={provider:'codex',chatID:id,slotIndex:0,view:'reply',page:0,draft:'',recording:false,sendState:'none',refreshNonce:0};
+const followSnapshot=overrides=>({version:1,hostID,active:true,revision:2,sourceID:second,sourceName:'iPad',
+  expiresAt:new Date(Date.now()+45000).toISOString(),chatTitle:'First thread',state:{...displayState},...overrides});
+test('follow supports older companions and never exposes native ownership routes',async t=>{
+  const {request,commands,reads,base}=await fixture(t);
+  assert.equal((await fetch(base+'/api/follow')).status,401);
+  assert.equal((await request('/api/follow',{headers:{Origin:'null'}})).status,403);
+  const response=await request('/api/follow');
+  assert.equal(response.status,200);
+  assert.deepEqual(await response.json(),{supported:false,version:1,hostID,active:false,revision:0});
+  assert.equal((await request('/api/follow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'claim'})})).status,404);
+  assert.equal(commands.length,0);assert.equal(reads.length,0);
+});
+test('follow strips lease secrets and stale feedback while retaining exact native display target',async t=>{
+  const source=followSnapshot({leaseID:'private-ownership-token',unexpected:'private',feedback:{revision:1,pageCount:3,renderedPage:0,connected:true}});
+  const {request,commands,reads}=await fixture(t,{follow:()=>new Response(JSON.stringify(source))});
+  const data=await (await request('/api/follow')).json();
+  assert.equal(data.supported,true);assert.deepEqual(data.state,displayState);assert.equal(data.chatTitle,'First thread');
+  assert.equal(data.feedback,undefined);assert.equal(data.leaseID,undefined);assert.equal(data.unexpected,undefined);
+  assert.equal(commands.length,0);assert.equal(reads.length,0);
+});
+test('expired and inactive follow sessions cannot leak a draft',async t=>{
+  for (const overrides of [{expiresAt:new Date(Date.now()-1).toISOString()}, {active:false}]) {
+    const {request}=await fixture(t,{follow:()=>new Response(JSON.stringify(followSnapshot({...overrides,
+      state:{...displayState,view:'draft',draft:'private text',recording:true}})))});
+    assert.deepEqual(await (await request('/api/follow')).json(),{supported:true,version:1,hostID,active:false,revision:2});
+  }
+});
+test('follow rejects cross-host targets, invalid states and oversized drafts',async t=>{
+  for (const changes of [{hostID:id},{sourceName:'untrusted'}, {state:{...displayState,page:-1}},
+    {state:{...displayState,chatID:null}}, {state:{...displayState,draft:'x'.repeat(16001)}},
+    {state:{...displayState,action:'sendPrompt'}}, {state:{...displayState,sendState:'sent'}}]) {
+    const {request}=await fixture(t,{follow:()=>new Response(JSON.stringify(followSnapshot(changes)))});
+    const response=await request('/api/follow');assert.equal(response.status,502);
+    assert.equal((await response.json()).error.code,'invalid_response');
+  }
+});
+test('display feedback is closed, authenticated and never runs chat or send commands',async t=>{
+  const source=followSnapshot({feedback:{revision:2,pageCount:3,renderedPage:0,connected:true}});
+  const {request,base,feedback,commands,reads}=await fixture(t,{follow:()=>new Response(JSON.stringify(source))});
+  const value={revision:2,provider:'codex',chatID:id,view:'reply',pageCount:3,renderedPage:0,connected:true};
+  const init=body=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  assert.equal((await fetch(base+'/api/follow-feedback',init(value))).status,401);
+  for (const invalid of [{...value,text:'do something'},{...value,leaseID:second},{...value,renderedPage:3},
+    {...value,pageCount:0},{...value,revision:-1},{...value,chatID:null}])
+    assert.equal((await request('/api/follow-feedback',init(invalid))).status,422);
+  assert.equal(feedback.length,0);
+  const response=await request('/api/follow-feedback',init(value));assert.equal(response.status,200);
+  assert.deepEqual(feedback,[value]);assert.deepEqual((await response.json()).feedback,source.feedback);
+  assert.equal(commands.length,0);assert.equal(reads.length,0);
+});
+test('stale display feedback conflicts are not retried or treated as acknowledgments',async t=>{
+  const {request,feedback}=await fixture(t,{feedback:()=>new Response('{}',{status:409})});
+  const response=await request('/api/follow-feedback',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({revision:1,provider:'codex',chatID:id,view:'reply',pageCount:2,renderedPage:0,connected:true})});
+  assert.equal(response.status,409);assert.equal(feedback.length,1);
+  assert.equal((await response.json()).error.code,'display_changed');
+});
 test('private API rejects missing credentials and wrong origins before upstream requests',async t=>{
   const {base,request}=await fixture(t);
   assert.equal((await fetch(base+'/api/status')).status,401);

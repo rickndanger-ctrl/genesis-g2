@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { cleanFollow, cleanFeedback, InvalidFollow } from './follow.mjs';
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -13,7 +14,7 @@ const providers = new Set(['codex','claude']);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const opaque = /^[A-Za-z0-9._:-]{1,256}$/;
 const networkRoutes = new Set(['/','/index.html','/healthz','/api/status','/api/profile','/api/chats',
-  '/api/reply','/api/open','/api/diagnostics','/api/network-diagnostics']);
+  '/api/reply','/api/open','/api/diagnostics','/api/network-diagnostics','/api/follow','/api/follow-feedback']);
 function networkPath(pathname) {
   if (networkRoutes.has(pathname)) return pathname;
   if (pathname.startsWith('/api/')) return '/api/other';
@@ -112,6 +113,31 @@ export function createBridge(config, dependencies={}) {
     if (!uuid.test(status?.hostID ?? '') || !Array.isArray(status.providers)) fault(502,'invalid_response','The companion returned an unsupported status.');
     return status;
   }
+  async function followSnapshot(feedback) {
+    // Fixed endpoints only; never expose the native claim/update/release operations.
+    try {
+      const token=dependencies.upstreamToken ?? (await readFile(config.upstreamTokenFile,'utf8')).trim();
+      const [status,response]=await Promise.all([hostStatus(),fetcher(upstreamURL+
+        (feedback ? '/v1/display-feedback' : '/v1/display-session'),{
+        method:feedback ? 'POST' : 'GET',redirect:'error',signal:AbortSignal.timeout(5000),
+        headers:{Authorization:`Bearer ${token}`,...(feedback ? {'Content-Type':'application/json'} : {})},
+        ...(feedback ? {body:JSON.stringify(feedback)} : {})
+      })]);
+      if (!feedback && [404,501].includes(response.status))
+        return {supported:false,version:1,hostID:status.hostID,active:false,revision:0};
+      if (response.status===409) fault(409,'display_changed','The controller display changed. Refresh before acknowledging it.');
+      if (response.status===422) fault(422,'invalid_feedback','This display acknowledgment is no longer valid.');
+      if (!response.ok) fault(503,'follow_unavailable','The native display session is unavailable. Refresh the Mac connection.');
+      const body=await response.text();
+      if (Buffer.byteLength(body)>131072) fault(502,'invalid_response','The display session response is too large.');
+      return cleanFollow(JSON.parse(body),status.hostID,dependencies.followNow?.() ?? Date.now());
+    } catch (error) {
+      if (error instanceof Fault) throw error;
+      if (error instanceof InvalidFollow || error instanceof SyntaxError)
+        fault(502,'invalid_response','The Mac returned an unsupported display session.');
+      fault(503,'follow_unavailable','Open the Genesis Mac companion to use Follow this controller.');
+    }
+  }
   async function chats(provider) {
     const data=await upstream('/v1/chats?provider='+provider);
     if (!Array.isArray(data.chats)) fault(502,'invalid_response','The chat list is unavailable.');
@@ -194,7 +220,7 @@ export function createBridge(config, dependencies={}) {
         if (!allowedOrigins.has(origin)) fault(403,'origin_denied','This app origin has not been paired with Genesis G2.');
         cors={'Access-Control-Allow-Origin':origin,'Vary':'Origin'};
       }
-      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.1.0'},cors);
+      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.2.0'},cors);
       if (target.pathname.startsWith('/api/')) {
         if (request.method==='OPTIONS') {
           if (!origin || !['GET','POST'].includes(request.headers['access-control-request-method'])) fault(403,'preflight_denied','This request is not allowed.');
@@ -203,6 +229,15 @@ export function createBridge(config, dependencies={}) {
           response.writeHead(204,{...cors,'Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Max-Age':'300'}); return response.end();
         }
         if (!tokenMatches(request.headers.authorization,config.token)) fault(401,'not_paired','Pair Genesis G2 with this Mac first.');
+        if (target.pathname==='/api/follow' && request.method==='GET')
+          return json(response,200,await followSnapshot(),cors);
+        if (target.pathname==='/api/follow-feedback' && request.method==='POST') {
+          const body=await readJSONBody(request);
+          let feedback;
+          try { feedback=cleanFeedback(body); }
+          catch { fault(422,'invalid_feedback','Only a current display acknowledgment is accepted.'); }
+          return json(response,200,await followSnapshot(feedback),cors);
+        }
         if (target.pathname==='/api/network-diagnostics' && request.method==='GET') {
           pruneNetworkRequests();
           return json(response,200,{requests:networkRequests},cors);
@@ -228,7 +263,7 @@ export function createBridge(config, dependencies={}) {
         }
         if (request.method==='GET' && target.pathname==='/api/status') {
           const source=await hostStatus();
-          return json(response,200,{version:'0.1.0',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
+          return json(response,200,{version:'0.2.0',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
             id:p.id,label:safeLabel(p.name,p.id),available:p.readiness==='ready' && p.capabilities?.includes('openChat')===true,
             canReadReply:p.id==='codex' && p.readiness==='ready',reason:safeLabel(p.reason)
           }))},cors);

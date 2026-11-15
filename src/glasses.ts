@@ -4,8 +4,10 @@ import { replyPages, truncateUTF8 } from './pagination';
 import { ControllerStore, type State, type View } from './store';
 import { providerName, slotName } from './types';
 import type { DiagnosticRecorder } from './diagnostics';
+import { followPresentation } from './follow';
+import type { FollowFeedback } from './types';
 
-export type GlassesFrame = { kind: 'list' | 'text'; title: string; content: string; footer: string; items: string[]; context: string };
+export type GlassesFrame = { kind: 'list' | 'text'; title: string; content: string; footer: string; items: string[]; context: string; following?: boolean; feedback?: { payload: FollowFeedback; hostID: string; sourceID: string } };
 export function shortHeading(value: string, max = 42): string {
   let used = 0; let title = '';
   for (const char of value) {
@@ -16,10 +18,13 @@ export function shortHeading(value: string, max = 42): string {
   return title;
 }
 export function glassesFrame(state: State, hostName: string): GlassesFrame {
+  const follow = followPresentation(state);
+  if (follow) return { kind: 'text', title: follow.title, content: follow.content, footer: follow.footer, context: follow.context, items: [], following: true, ...(follow.feedback ? { feedback: follow.feedback } : {}) };
   const prefix = state.demo ? 'DEMO / ' : '';
   const title = `${prefix}${hostName} / ${providerName(state.provider)}`;
   const targets = state.view === 'slots' ? state.slots.map(s => `${s.slot}:${s.kind}:${s.chatID ?? ''}`).join('|') : state.view === 'hosts' ? state.hosts.map(h => h.id).join('|') : '';
   const context = `${state.hostID ?? ''}:${state.demo}:${state.provider}:${state.view}:${state.selected?.id ?? ''}:${targets}`;
+  if (state.followEnded) return { kind: 'text', title: 'GENESIS G2 / Follow ended', content: state.followNotice ?? 'Native follow ended.', footer: 'Resume in Genesis / Leave follow on phone', items: [], context: `${context}:follow-ended` };
   if (state.error) return { kind: 'text', title, content: truncateUTF8(state.error, 850), footer: 'Double tap: chats  |  Menu: refresh', items: [], context: `${context}:error` };
   if (!state.hostID && !state.demo) return { kind: 'text', title: 'GENESIS G2', content: 'Your agents, within a glance.\n\nPair a computer in the phone app to get started.\n\nOr choose Explore preview on your phone.', footer: 'Independent Genesis reader', items: [], context: 'unpaired' };
   if (state.busy && !state.connected && state.view === 'slots') return { kind: 'text', title, content: 'Connecting to your computer…\n\nLoading available chats.', footer: 'GENESIS G2', items: [], context: `${context}:loading` };
@@ -76,7 +81,7 @@ export function pageFor(frame: GlassesFrame, ids: ContainerIDs = { heading: 1, b
   if (frame.kind === 'text') textObject.push(text(ids.body, 'body', 48, 202, frame.content, 1));
   else listObject.push(new ListContainerProperty({ containerID: ids.body, containerName: 'choices', xPosition: 8, yPosition: 48, width: 560, height: 202, isEventCapture: 1, borderWidth: 0, paddingLength: 2, itemContainer: new ListItemContainerProperty({ itemCount: frame.items.length, itemWidth: 550, isItemSelectBorderEn: 1, itemName: frame.items }) }));
   return new CreateStartUpPageContainer({ containerTotalNum: textObject.length + listObject.length, textObject, listObject,
-    menuObject: new MenuContainerProperty({ menuItems: [new MenuItemProperty({ itemID: 1, itemName: 'Chats' }), new MenuItemProperty({ itemID: 2, itemName: 'Computers' }), new MenuItemProperty({ itemID: 3, itemName: 'Agents' }), new MenuItemProperty({ itemID: 4, itemName: 'Refresh' })] }) });
+    menuObject: new MenuContainerProperty({ menuItems: frame.following ? [new MenuItemProperty({ itemID: 4, itemName: 'Refresh display' })] : [new MenuItemProperty({ itemID: 1, itemName: 'Chats' }), new MenuItemProperty({ itemID: 2, itemName: 'Computers' }), new MenuItemProperty({ itemID: 3, itemName: 'Agents' }), new MenuItemProperty({ itemID: 4, itemName: 'Refresh' })] }) });
 }
 
 // One write at a time; coalesce intermediate frames while Bluetooth is busy.
@@ -87,20 +92,22 @@ export class GlassesRenderer {
   private rendering = false;
   private created = false;
   private forceRebuild = false;
+  private verifyPending = false;
   private lifecycle = 0;
   private serial = 0;
   private ids: ContainerIDs = { heading: 1, body: 2, footer: 3 };
   private target: { context: string; kind: GlassesFrame['kind']; containerID: number } | null = null;
   get inputTarget() { return this.target; }
-  constructor(private port: GlassesPort, private onError: (message: string) => void, private diagnostic: DiagnosticRecorder = () => {}, private onAcknowledged: () => void = () => {}) {}
+  get busy() { return this.rendering; }
+  constructor(private port: GlassesPort, private onError: (message: string) => void, private diagnostic: DiagnosticRecorder = () => {}, private onAcknowledged: (frame: GlassesFrame) => void = () => {}) {}
   reset() { this.lifecycle++; this.created = false; this.last = null; this.target = null; }
   reconnect(frame: GlassesFrame) { this.forceRebuild = true; this.target = null; this.render(frame); }
-  suspend() { this.lifecycle++; this.pending = null; this.target = null; }
-  render(frame: GlassesFrame) {
+  suspend() { this.lifecycle++; this.pending = null; this.target = null; this.verifyPending = false; }
+  render(frame: GlassesFrame, verify = false) {
     // Revoke input immediately when target identity changes, before Bluetooth
     // acknowledges the replacement page. Old visible rows must not select new IDs.
     if (this.target?.context !== frame.context || this.target.kind !== frame.kind) this.target = null;
-    this.pending = frame; void this.drain();
+    this.verifyPending ||= verify; this.pending = frame; void this.drain();
   }
   private async drain() {
     if (this.rendering) return;
@@ -110,8 +117,9 @@ export class GlassesRenderer {
       while (this.pending) {
         generation = this.lifecycle;
         const frame = this.pending; this.pending = null;
+        const verify = this.verifyPending; this.verifyPending = false;
         const force = this.forceRebuild; this.forceRebuild = false;
-        if (!force && JSON.stringify(frame) === JSON.stringify(this.last)) continue;
+        if (!force && !verify && JSON.stringify(frame) === JSON.stringify(this.last)) continue;
         if (force || !this.last || this.last.context !== frame.context || this.last.kind !== frame.kind) {
           const base = ++this.serial * 3;
           this.ids = { heading: base, body: base + 1, footer: base + 2 };
@@ -132,7 +140,9 @@ export class GlassesRenderer {
           this.created = true;
         } else if (!force && frame.kind === 'text' && this.last?.kind === 'text' && frame.context === this.last.context) {
           for (const [id, name, content, old] of [[this.ids.heading, 'heading', truncateUTF8(shortHeading(frame.title), 120), truncateUTF8(shortHeading(this.last.title), 120)], [this.ids.body, 'body', frame.content, this.last.content], [this.ids.footer, 'footer', truncateUTF8(frame.footer, 95), truncateUTF8(this.last.footer, 95)]] as const) {
-            if (content !== old) {
+            // A new controller revision needs a real native ACK even if its
+            // visible text is unchanged (for example, a page was clamped).
+            if (content !== old || name === 'footer' && (verify || frame.feedback && JSON.stringify(frame.feedback) !== JSON.stringify(this.last.feedback))) {
               const result = await bounded(this.port.textContainerUpgrade(new TextContainerUpgrade({ containerID: id, containerName: name, content })), 8000);
               this.diagnostic('page_ack', { phase: 3, ack: result ? 1 : 0, containerID: id });
               if (generation !== this.lifecycle) return;
@@ -147,7 +157,7 @@ export class GlassesRenderer {
         }
         this.last = frame;
         this.target = { context: frame.context, kind: frame.kind, containerID: this.ids.body };
-        this.onAcknowledged();
+        this.onAcknowledged(frame);
       }
     } catch {
       if (generation !== this.lifecycle) return;
@@ -165,17 +175,20 @@ export class GlassesController {
   private connecting = false;
   private connectionEpoch = 0;
   private unsubscribeDevice: (() => void) | null = null;
+  private followAckAttempt = { key: '', at: 0, hadFeedback: false };
   constructor(private store: ControllerStore, private onStatus: (status: string, connected: boolean) => void, port?: GlassesPort, private diagnostic: DiagnosticRecorder = () => {}, private getBridge: () => Promise<EvenAppBridge> = waitForEvenAppBridge, private hasNative: () => boolean = nativeTransportAvailable) {
     if (port) this.renderer = this.makeRenderer(port);
   }
   private makeRenderer(port: GlassesPort) {
-    return new GlassesRenderer(port, message => this.disconnect(3, 4, message), this.diagnostic, () => {
+    return new GlassesRenderer(port, message => this.disconnect(3, 4, message), this.diagnostic, frame => {
       if (!this.active) return;
       this.diagnostic('connected', { phase: 3, ack: 1 });
       this.onStatus('Glasses page connected', true);
+      if (frame.feedback) void this.store.acknowledgeFollow(frame.feedback.payload, frame.feedback.hostID, frame.feedback.sourceID);
     });
   }
   private disconnect(phase: number, reason: number, message: string) {
+    void this.store.disconnectFollowDisplay();
     this.connectionEpoch++; this.active = false; this.renderer?.suspend();
     this.diagnostic('disconnected', { phase, reason }); this.onStatus(message, false);
   }
@@ -236,7 +249,19 @@ export class GlassesController {
     }
     finally { this.connecting = false; }
   }
-  render(state: State) { if (this.active) this.renderer?.render(glassesFrame(state, this.store.host?.name ?? 'Pair a computer')); }
+  render(state: State) {
+    if (!this.active || !this.renderer) return;
+    const frame = glassesFrame(state, this.store.host?.name ?? 'Pair a computer');
+    const key = state.follow ? `${state.follow.hostID}:${state.follow.sourceID}:${state.follow.revision}` : '';
+    const hasFeedback = state.follow?.feedback?.connected === true;
+    const missingAck = Boolean(state.follow && frame.feedback && !hasFeedback);
+    // Mac feedback expires after 15s. Re-verify the physical display on that
+    // edge, or retry a lost acknowledgment at a bounded cadence. Normal native
+    // heartbeats and feedback responses never cause a Bluetooth write loop.
+    const verify = missingAck && !this.renderer.busy && (this.followAckAttempt.hadFeedback || key !== this.followAckAttempt.key || Date.now() - this.followAckAttempt.at >= 5000);
+    this.followAckAttempt = { key, at: verify ? Date.now() : this.followAckAttempt.at, hadFeedback: hasFeedback };
+    this.renderer.render(frame, verify);
+  }
   private count(view: View) { return view === 'hosts' ? this.store.state.hosts.length : view === 'providers' ? 2 : 6; }
   handle(event: EvenHubEvent, preview = false) {
     const raw = event.listEvent ?? event.textEvent ?? event.sysEvent;
@@ -246,6 +271,12 @@ export class GlassesController {
     const state = this.store.state;
     if (gesture.action === 'background') { this.disconnect(5, 5, 'Genesis G2 closed on the glasses. Open it again in Even to reconnect.'); return; }
     if (gesture.action === 'overlay-open' || gesture.action === 'overlay-close') return;
+    // Native Genesis is the navigation owner while following. Gestures cannot
+    // open a second chat, page away from its state, or accidentally send anything.
+    if (this.store.manualControlsPaused) {
+      if (gesture.action === 'menu' && gesture.id === 4) void this.store.refresh();
+      return;
+    }
     if (!preview) {
       if (!this.active) { this.diagnostic('input_rejected', { reason: 1 }); return; }
       const frame = glassesFrame(state, this.store.host?.name ?? 'Pair a computer');

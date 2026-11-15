@@ -1,3 +1,28 @@
+# Genesis G2 0.2.0 validation
+
+Date: 2026-11-14. Native companion build: 16 (0.2.0). Target Mac: Mini 2.
+
+## Current version checks
+
+- Native signed Release build passed. Build 16 / 0.2.0 installed in place and independently queried on the intended physical iPhone 17 Pro and iPad (A16). The other paired iPhone was not changed.
+- Native checks: 36 Follow session, 184 HTTP/store integration, 144 transcript, 112 audio lifecycle, and 83 remote-core assertions passed. Build-15 speech implementation files have no diff.
+- Native Follow UI passed in iPhone portrait and iPad landscape. Page controls, Home/Reply, Refresh and button boundaries were exercised in an explicitly simulated, no-network fixture.
+- Mac display ownership/state suite: 107 checks passed; existing Mac/controller and Codex menu/queue/inventory suites passed. Signed installed executable matches the build, and the existing Accessibility signing identity was preserved. A pre-update app rollback copy is retained locally.
+- G2 HTTP bridge: 24 tests passed; read-only Codex reader: 50 checks passed.
+- Live private-HTTPS route check: native Home and exact selected Codex target reached the G2 adapter with explicit nullable fields and inventory-derived title. Lease secrets were stripped, stale sequence/feedback rejected, and release removed transient state. No chat was opened or prompt sent by this test, and no physical render success was fabricated.
+- Browser fixture: paired connection followed two distinct chat IDs, moved to page 3, showed a draft and “Send queued,” then cleared the draft on follow termination. Fixture cannot execute real Mac commands.
+
+## Pending current version acceptance
+
+- Real iPad native controls with Even foreground on iPhone: exact chat, draft/review, explicit Send, reply and page updates on G2.
+- Separate Even Beta installation; actual packaged origin and pairing persistence.
+- Same-iPhone native Genesis foreground while Even remains active in the background.
+- Five-minute locked-phone relay test while the iPad retains native ownership. Locking the controller itself intentionally releases Follow.
+
+No new physical G2 result is implied by the tests above. Earlier hardware acceptance below applies to the independent G2 reader path.
+
+---
+
 # Genesis G2 0.1.0 validation
 
 Date: 2026-11-14. Target: Mac Mini 2. This records a working private preview, not verified glasses hardware acceptance or a public release.
@@ -39,3 +64,10 @@ The user confirmed Genesis G2 was opened inside the Even app and reported the Ma
 - Developer QR mode is temporary and may suspend on phone lock or backgrounding. No always-on/locked-phone result is claimed.
 - The standalone package has not been uploaded or published. A future packaged deployment must verify its actual runtime origin and explicitly add that origin to the private bridge allowlist if different from the development URL.
 - Phone/G2 rendering can differ. Container sizes and UTF-8 limits were checked in code; physical readability and Bluetooth latency remain unverified.
+
+### Final 0.2.0 build evidence
+
+- 64 G2 frontend checks passed, including render ACK freshness, disconnect revocation, and late-native pairing storage migration; TypeScript/Vite build passed.
+- Official package generated: `com.pybird.genesisg2` 0.2.0, SDK 0.0.16, minimum Even app 2.2.10, 59,776 bytes. SHA-256 `662d4dca795e6bfb7047fbecc1fc87687f520eed7f965d5b8d4bb6384a111b55`.
+- Package input scan found neither the G2 pairing token nor the native companion token. Separate app identity and version verified.
+- Current package is ready locally. Even Hub upload/Beta promotion awaits the requested confirmation; no upload or distribution result is claimed.

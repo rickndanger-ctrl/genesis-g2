@@ -2,7 +2,7 @@
 
 A standalone controller and reply reader for Even Realities G2. It has its own app ID (`com.pybird.genesisg2`), pairing, browser storage, and Mac bridge. It does not replace Home, the Genesis iPhone controller, or Genesis Mini firmware.
 
-This first preview opens existing Codex and Claude chats on a paired Mac and reads the latest Codex assistant response on the glasses. It keeps the six existing slot assignments and colors on the phone; G2 uses monochrome green with A1–A6 / C1–C6 labels. Long responses are split into pages.
+This preview opens existing Codex and Claude chats on a paired Mac and reads the latest Codex assistant response on the glasses. It keeps the six existing slot assignments and colors on the phone; G2 uses monochrome green with A1–A6 / C1–C6 labels. Long responses are split into pages.
 
 ## What is connected
 
@@ -12,7 +12,7 @@ This first preview opens existing Codex and Claude chats on a paired Mac and rea
 - Glasses chat list, reply pages, computer/agent menus, and phone preview controls.
 - Separate private pairing over Tailscale HTTPS. No public tunnel or cloud transcript service.
 
-This version does not implement voice input, Send, approvals, shortcut execution, artifact controls, or reading Claude replies. The existing Genesis apps retain those features. A successful Codex open request means the OS accepted the request; the real visible selection still needs device observation.
+G2 itself does not capture voice or execute Send. Version 0.2 adds **Follow this controller**: the native Genesis iPhone/iPad app handles dictation, review, and explicit Send using its existing verified route, while G2 displays the selected chat, draft, delivery state, and Codex reply pages. Approvals, shortcut execution, artifact controls, and Claude reply reading remain outside the G2 display preview. A successful Codex open request means the OS accepted the request; the real visible selection still needs device observation.
 
 ## Try the private preview
 
@@ -26,6 +26,22 @@ The paired iPhone must have Tailscale connected, the Even app, and the G2 connec
 The phone's **Explore preview** is explicitly simulated and makes no computer requests. It is useful for exploring the layout, not proof of a live glasses connection.
 
 Developer QR previews can suspend when the iPhone locks or the Even app backgrounds. This preview has not been published to the Even launcher. A packaged/Beta installation is a separate next step after the physical test. Never replace the Home package to install Genesis G2.
+
+## Use the native controller with G2
+
+Install native Genesis 0.2.0 (build 16) and the updated Mac companion. Keep both apps paired to the same Mac. The first hardware check uses the **iPad** for native controls and the **iPhone** for the Even glasses relay.
+
+1. On the iPhone, open Genesis G2 inside Even and connect the glasses.
+2. On the iPad, open Genesis Controller, choose the same Mac and Codex, then turn on **Follow this controller** below the controller.
+3. Tap an assigned chat. G2 follows only after the normal chat-open receipt, without issuing a second open command.
+4. Hold the native microphone, speak, and release to review. The glasses can show the draft, but only **Send draft** in the native app sends it. A queued receipt is shown as queued, never as confirmed delivery.
+5. Use **Reply**, **Draft**, **Home**, page arrows, and **Refresh** from the native follow panel. A display acknowledgment shows which page the glasses accepted.
+
+One native device controls the display at a time. Taking over from another iPhone/iPad is explicit. Leaving the native app or changing computer/agent ends follow; the display lease also expires after 45 seconds without renewal. Transient display drafts are held in memory only, and expiry clears them. Original native drafts and Send receipts retain their existing storage behavior. Turning Follow on keeps that controller's screen awake until Follow stops.
+
+Claude selection, draft preview, and native Send status can follow too. Its reply view explicitly reports that Claude reply reading is not connected. Use **Leave follow** inside Genesis G2 to return to its standalone controls; this does not steal ownership from the native device.
+
+A same-iPhone workflow requires a real Even Beta installation and a background/lock acceptance test. Developer QR success does not establish that. [Follow protocol](FOLLOW_PROTOCOL.md) documents the display-only boundary.
 
 ## Build and local setup
 
@@ -69,14 +85,14 @@ Install the official `@evenrealities/evenhub-cli` if it is not already available
 
 ```sh
 node bridge/package-config.mjs
-evenhub pack .local/app.json dist -o .local/genesis-g2-0.1.0.ehpk --sdk-ver 0.0.16
+evenhub pack .local/app.json dist -o .local/genesis-g2-0.2.0.ehpk --sdk-ver 0.0.16
 ```
 
 `.local`, generated packages, build products, tokens and logs are excluded from Git. The shared `app.json` has an empty network whitelist deliberately; a private package must name its destination explicitly. The package contains no pairing token. Uploading, Beta distribution and public publication are separate from packaging.
 
 ## Safety and verification
 
-The bridge exposes read-only status/profile/chat/reply routes and one `openChat` operation. It has no Send, approval, generic shell, arbitrary URL or arbitrary command endpoint. Chat changes are serialized and checked against current account inventory; slot selections are rejected if the mapping has changed. The Codex reader never starts a daemon, resumes a thread or sends a message. Replies and bearer tokens are not logged.
+The bridge exposes read-only status/profile/chat/reply/follow routes, bounded display acknowledgments, and one `openChat` operation. G2 cannot claim native display ownership; only the paired native app can do that. It has no Send, approval, generic shell, arbitrary URL or arbitrary command endpoint. Chat changes are serialized and checked against current account inventory; slot selections are rejected if the mapping has changed. The Codex reader never starts a daemon, resumes a thread or sends a message. Replies and bearer tokens are not logged.
 
 Connection diagnosis uses an authenticated, bounded in-memory trace: at most 128 records, visible for 15 minutes. It accepts only named connection stages and integer counters. Chat text, chat IDs, device serial numbers, and credentials are rejected. These diagnostics go only to the paired Mac, never an analytics service.
 

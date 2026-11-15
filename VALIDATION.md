@@ -15,7 +15,7 @@ Date: 2026-11-14. Native companion build: 16 (0.2.0). Target Mac: Mini 2.
 ## Pending current version acceptance
 
 - Real iPad native controls with Even foreground on iPhone: exact chat, draft/review, explicit Send, reply and page updates on G2.
-- Separate Even Beta installation; actual packaged origin and pairing persistence.
+- Even Beta installation on the phone; actual packaged origin and pairing persistence.
 - Same-iPhone native Genesis foreground while Even remains active in the background.
 - Five-minute locked-phone relay test while the iPad retains native ownership. Locking the controller itself intentionally releases Follow.
 
@@ -70,4 +70,4 @@ The user confirmed Genesis G2 was opened inside the Even app and reported the Ma
 - 64 G2 frontend checks passed, including render ACK freshness, disconnect revocation, and late-native pairing storage migration; TypeScript/Vite build passed.
 - Official package generated: `com.pybird.genesisg2` 0.2.0, SDK 0.0.16, minimum Even app 2.2.10, 59,776 bytes. SHA-256 `662d4dca795e6bfb7047fbecc1fc87687f520eed7f965d5b8d4bb6384a111b55`.
 - Package input scan found neither the G2 pairing token nor the native companion token. Separate app identity and version verified.
-- Current package is ready locally. Even Hub upload/Beta promotion awaits the requested confirmation; no upload or distribution result is claimed.
+- With explicit user authorization, the package was uploaded to its separate Even Hub project and promoted to private Beta. Portal visibly confirmed “Beta build v0.2.0.” The requested invitation was sent only to the user’s own Even account; after the user accepted, a fresh portal load confirmed Active membership. Home remained a separate project at its existing build. Phone installation is the next acceptance step.

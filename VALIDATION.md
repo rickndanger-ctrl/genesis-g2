@@ -1,6 +1,6 @@
 # Genesis G2 0.3.0 validation
 
-Date: 2026-11-14 (PST). Native companion: 0.2.1 / build 17. Target Mac: Mini 2.
+Date: 2026-11-14 (PST). Native companion: 0.2.1 / build 18 (physical flow tested on build 17; build 18 changes help text only). Target Mac: Mini 2.
 
 ## Built, installed, and published
 
@@ -14,12 +14,17 @@ Date: 2026-11-14 (PST). Native companion: 0.2.1 / build 17. Target Mac: Mini 2.
 - The existing authorized private testing group remains one person. Even Hub visibly confirms **Beta build v0.3.0 Published**. Local publication screenshot: `.local/beta-v030-proof.jpg`. The intermediate 0.2.1 package remains private, superseded by 0.3.0. Home's package was not changed.
 - Accepted rollback tags retained: G2 `g2-follow-0.2.0-accepted` and native `g2-follow-build16-accepted`. The previous reader binary is retained locally.
 
-## Pending physical acceptance for 0.3.0
+## Physical acceptance for 0.3.0
 
-- Install/open the updated Even Beta and reconnect the glasses. Re-enable the opt-in background relay for same-iPhone use.
-- Confirm the new YOU / CODEX conversation and separate draft box are readable on G2; page through longer conversation and draft text using the native controller.
+- The user confirmed the 0.3.0 Even Beta was updated and opened, then confirmed the opt-in background relay was enabled. The updated package emitted a new exact loopback origin; that observed origin was added to the private allowlist. Authenticated Follow requests returned 200 after restarting only the dedicated G2 bridge. Bearer authentication, other routes, and pairing tokens were unchanged.
+- The user confirmed the new YOU / CODEX conversation and separate draft box are visible after selecting this chat from native Genesis on iPhone. Live state independently shows iPhone ownership and matching connected feedback for the selected slot. The new package's body/footer updates returned literal boolean success in the numeric-only SDK trace. This also confirms the updated native-foreground / Even-background path is operating on this setup.
+- The first paging attempt was not a pass: the user could not see this conversation, and live state showed Home with no selected chat. The exact current thread was mapped to A6. After tapping A6, the user confirmed this conversation appeared, then confirmed the right arrow showed older text. Live state independently showed this exact thread, slot 6, requested page 1, and matching connected feedback for page 2 of 6.
+- The user then followed the return-to-latest and dictation-review check and confirmed both the conversation and released draft stay visible in their separate areas. Live state independently showed the exact current thread, iPhone ownership, Draft view/page zero, recording false, a 48-scalar draft, and matching connected feedback. No test draft was submitted by the agent. Native Send-once behavior was already user-accepted on 0.2.0 and its implementation is unchanged.
+- Native build 18 corrects only two same-iPhone helper messages and increments the build number. Signed Release build and strict signature verification passed. It was installed in place on both intended devices and independently queried as 0.2.1 / 18. Executable SHA-256: `ad5243d2a54e825261533799eb5ab7f57df2bed0d459e747afad57a134b3bb98`; native source commit `390b6af`. No routing, dictation, Send, or Follow logic changed after the physical check. Reopening the native app and re-enabling Follow after installation is normal; returning from background does not silently claim display ownership.
 - Initial switching, dictation review, explicit Send once, and same-iPhone background control were accepted on 0.2.0 below. Do not treat those as optical acceptance of the new layout.
 - Full Even restart, a five-minute locked relay-phone test with the iPad as controller, and long-duration reliability remain unverified. Claude reply reading is still explicitly unavailable.
+
+The scoped Mini 2 / Codex native Follow and conversation/composer update is accepted. The optional reliability checks and unsupported provider reading above are not claimed as complete.
 
 ---
 

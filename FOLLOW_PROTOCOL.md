@@ -41,7 +41,7 @@ G2 polls while active, including hidden-page operation only in a real Beta build
 
 Add an explicit Follow this controller switch, owner/takeover affordance, and reply/draft/previous-page/next-page/home/refresh controls. Keep native Hold Talk and explicit Send unchanged; optionally show a dedicated Send button in the follow panel calling the same guarded sendDraft method. Publish after confirmed chat changes. Debounce draft snapshots; serialize all session writes and guard response generation across host/provider changes. Heartbeat every 10 seconds while foreground. Stop/release on disabling, host change, or background; renew only when the user enables/returns to their explicitly selected session. An expired session cannot be silently stolen back from another device. Preserve the build-15 speech implementation, persisted drafts and Send receipt ledger.
 
-The iPad controller + Even foreground on the iPhone is the first physical acceptance setup. Same-iPhone native control requires a real Even Beta install and a background/lock test; do not claim this from the QR preview.
+The iPad controller + Even foreground on the iPhone is the first physical acceptance setup. Same-iPhone native control requires a real Even Beta install and a test with Genesis foreground while Even is in the background; do not claim this from the QR preview. Locking the native controller intentionally releases Follow. Testing a locked relay phone while the iPad retains ownership is a separate reliability check.
 
 ## Conversation view (0.3.0)
 

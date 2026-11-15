@@ -25,11 +25,11 @@ The paired iPhone must have Tailscale connected, the Even app, and the G2 connec
 
 The phone's **Explore preview** is explicitly simulated and makes no computer requests. It is useful for exploring the layout, not proof of a live glasses connection.
 
-Developer QR previews can suspend when the iPhone locks or the Even app backgrounds. Genesis G2 0.3.0 is available as a separate private Beta for the authorized tester account. After accepting the invitation, use Even → Me → Beta tester → Genesis G2 → Install or Update. The conversation layout requires the updated 0.3.0 Mac bridge. Initial same-iPhone native control with Even in the background was physically verified on 0.2.0; the new layout's physical acceptance, locked-phone relay, and long-duration reliability remain pending. Never replace the Home package to install Genesis G2.
+Developer QR previews can suspend when the iPhone locks or the Even app backgrounds. Genesis G2 0.3.0 is available as a separate private Beta for the authorized tester account. After accepting the invitation, use Even → Me → Beta tester → Genesis G2 → Install or Update. The conversation layout requires the updated 0.3.0 Mac bridge. The new conversation layout, paging, separate released draft, and same-iPhone native control with Even in the background are user-confirmed on this setup. Locked-phone relay and long-duration reliability remain unverified. Never replace the Home package to install Genesis G2.
 
 ## Use the native controller with G2
 
-Use native Genesis build 16 or later and the updated Mac companion. Build 17 adds exact duplicate-slot labeling and clearer conversation controls. Keep both apps paired to the same Mac. The simplest setup uses the **iPad** for native controls and the **iPhone** for the Even glasses relay.
+Use native Genesis build 16 or later and the updated Mac companion. Build 17 adds exact duplicate-slot labeling and clearer conversation controls; build 18 corrects the same-iPhone setup help. Keep both apps paired to the same Mac. The simplest setup uses the **iPad** for native controls and the **iPhone** for the Even glasses relay.
 
 1. On the iPhone, open Genesis G2 inside Even and connect the glasses.
 2. On the iPad, open Genesis Controller, choose the same Mac and Codex, then turn on **Follow this controller** below the controller.

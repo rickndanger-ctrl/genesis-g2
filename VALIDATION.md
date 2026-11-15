@@ -20,7 +20,15 @@ Native app review passed 36 Follow checks and 210 HTTP/store checks using fixtur
 
 Physical iPad settings were read successfully and show three distinct paired hosts: Mini 1, Mini 2, and Neo. Neo’s native HTTPS service responded 401 to an unauthenticated request, establishing reachability only. Claude was closed on Mini 2 at the time of the read check. The Mac’s iPhone Mirroring settings still target Rick’s iPhone; no physical iPad UI switching test has run. iPad AirPlay viewing requires starting Screen Mirroring on the iPad, and does not by itself establish interactive control.
 
-Pending: install/open the new Even Beta, enroll both Mac credentials, then verify a full Even restart and changed port without adding that new origin manually. A newly installed build may need one initial trusted-origin bootstrap before it can enroll.
+### Physical 0.4.1 enrollment
+
+The user confirmed installing and opening 0.4.1. Its first launch used a new exact Even loopback origin, so that observed address was bootstrapped once on both bridges as planned. Mini 2 enrolled successfully. The initial other-host warmup had run before bootstrap; the user tapped Reconnect glasses, which repeated read-only warmup and enrolled Mini 1 too. Both real bridges recorded authenticated enrollment HTTP 200 and each saved one installation in a mode-0600 recovery file. Mini 2 also received fresh reply reads and matching connected glasses feedback. The user was then asked to enable the saved background preference, fully close/reopen Even, and allow automatic reconnect.
+
+### Physical Even restart recovery accepted
+
+The user fully closed/reopened Even and reopened Genesis G2. Both physical Minis automatically registered two subsequently observed loopback origins through their saved recovery credentials. The current restart origin was absent from both static configuration allowlists and present in both private recovery-state files; no manual origin change or G2 service restart occurred during this acceptance check. Authenticated actual Even status/Follow traffic returned 200 on both Macs. A fresh Even SDK session on Mini 2 acknowledged a connected glasses display. Each private recovery file retained one installation and mode 0600.
+
+This confirms saved-credential recovery across actual Even restarts and port changes on both Minis. Native Follow was inactive during this readback because its controller lease had ended; connection recovery does not silently claim native ownership. A physical check that the background-relay checkbox restores its saved value remains separate from its passing persistence tests. iPad AirPlay switching inspection remains pending.
 
 # Genesis G2 connection recovery — 2026-11-15
 

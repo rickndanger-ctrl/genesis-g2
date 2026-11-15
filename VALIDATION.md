@@ -71,3 +71,7 @@ The user confirmed Genesis G2 was opened inside the Even app and reported the Ma
 - Official package generated: `com.pybird.genesisg2` 0.2.0, SDK 0.0.16, minimum Even app 2.2.10, 59,776 bytes. SHA-256 `662d4dca795e6bfb7047fbecc1fc87687f520eed7f965d5b8d4bb6384a111b55`.
 - Package input scan found neither the G2 pairing token nor the native companion token. Separate app identity and version verified.
 - With explicit user authorization, the package was uploaded to its separate Even Hub project and promoted to private Beta. Portal visibly confirmed “Beta build v0.2.0.” The requested invitation was sent only to the user’s own Even account; after the user accepted, a fresh portal load confirmed Active membership. Home remained a separate project at its existing build. Phone installation is the next acceptance step.
+
+### Installed Beta connection
+
+The user confirmed Genesis G2 0.2.0 was installed and opened in Even. Its packaged WebView retained the Genesis pairing but emitted Origin `http://127.0.0.1:65028`; the existing exact-origin check rejected its preflights. Only that observed origin was added to the private configuration, with no wildcard/null origins or bearer changes. After restarting the dedicated G2 service, its authenticated follow/reply/feedback requests returned 200. Real Even transport reported successful display ACKs, and the iPad-owned current revision received matching connected feedback. Continued polls and fresh ACKs remained active afterward. Visual chat-switching confirmation and background acceptance are still pending.

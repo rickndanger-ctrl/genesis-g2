@@ -25,7 +25,7 @@ The paired iPhone must have Tailscale connected, the Even app, and the G2 connec
 
 The phone's **Explore preview** is explicitly simulated and makes no computer requests. It is useful for exploring the layout, not proof of a live glasses connection.
 
-Developer QR previews can suspend when the iPhone locks or the Even app backgrounds. This preview has not been published to the Even launcher. A packaged/Beta installation is a separate next step after the physical test. Never replace the Home package to install Genesis G2.
+Developer QR previews can suspend when the iPhone locks or the Even app backgrounds. Genesis G2 0.2.0 is available as a separate private Beta for the authorized tester account. Accept its invitation, then use Even → Me → Beta tester → Genesis G2 → Install. Background operation still requires physical validation; do not infer it from the QR preview or package installation. Never replace the Home package to install Genesis G2.
 
 ## Use the native controller with G2
 

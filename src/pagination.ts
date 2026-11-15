@@ -1,4 +1,4 @@
-import type { ConversationTurn, Reply } from './types';
+import type { ConversationTurn, Provider, Reply } from './types';
 
 // Glasses use one firmware font. Keep pages intentionally sparse, within both
 // text-byte limits and a conservative visible line budget.
@@ -56,8 +56,9 @@ export function textLines(text: string, width = 42): string[] {
 
 // Newest page first, while each page preserves the conversation's reading order.
 // Role labels repeat at page boundaries so a long answer never becomes anonymous.
-export function conversationPages(turns: ConversationTurn[], width = 42, rows = 5): string[] {
-  const entries = turns.flatMap((turn, turnIndex) => textLines(turn.role === 'assistant' ? plainText(turn.text) : turn.text, width - 7).map(text => ({ turnIndex, role: turn.role, text })));
+export function conversationPages(turns: ConversationTurn[], width = 42, rows = 5, provider: Provider = 'codex'): string[] {
+  const assistantPrefix = provider === 'claude' ? 'CLAUDE: ' : 'CODEX: ';
+  const entries = turns.flatMap((turn, turnIndex) => textLines(turn.role === 'assistant' ? plainText(turn.text) : turn.text, width - assistantPrefix.length).map(text => ({ turnIndex, role: turn.role, text })));
   if (!entries.length) return ['No conversation text is available yet.'];
   let lastUserIndex = -1; turns.forEach((turn, index) => { if (turn.role === 'user' && turn.text.trim()) lastUserIndex = index; });
   const pinPrompt = lastUserIndex >= 0 && !entries.slice(-rows).some(entry => entry.turnIndex === lastUserIndex);
@@ -65,7 +66,7 @@ export function conversationPages(turns: ConversationTurn[], width = 42, rows = 
   while (end > 0) {
     const pin = pages.length === 0 && pinPrompt;
     const start = Math.max(0, end - rows + (pin ? 1 : 0)); const chunk = entries.slice(start, end);
-    const lines = chunk.map((entry, index) => `${index === 0 || chunk[index - 1].turnIndex !== entry.turnIndex ? entry.role === 'user' ? 'YOU: ' : 'CODEX: ' : '  '}${entry.text}`);
+    const lines = chunk.map((entry, index) => `${index === 0 || chunk[index - 1].turnIndex !== entry.turnIndex ? entry.role === 'user' ? 'YOU: ' : assistantPrefix : '  '}${entry.text}`);
     if (pin) lines.unshift(`YOU: ${shortLine(turns[lastUserIndex].text, width - 5)}`);
     pages.push(lines.join('\n')); end = start;
   }
@@ -74,7 +75,7 @@ export function conversationPages(turns: ConversationTurn[], width = 42, rows = 
 export function replyConversation(reply: Reply | null) {
   const turns = reply?.turns?.filter(turn => turn.text.trim());
   const hasHistory = Boolean(turns?.length);
-  const pages = hasHistory ? conversationPages(turns!) : reply?.text.trim() ? conversationPages([{ role: 'assistant', text: reply.text, phase: reply.phase }]) : ['No conversation text is available yet.'];
+  const pages = hasHistory ? conversationPages(turns!, 42, 5, reply!.provider) : reply?.text.trim() ? conversationPages([{ role: 'assistant', text: reply.text, phase: reply.phase }], 42, 5, reply.provider) : ['No conversation text is available yet.'];
   return { pages: pages.slice(0, 1000), replyOnly: !hasHistory, truncated: pages.length > 1000 || reply?.turnsTruncated === true || reply?.truncated === true || turns?.some(turn => turn.truncated) === true };
 }
 export function composerText(draft: string, voiceInput: boolean, sendState: string, sourceName: string): string {

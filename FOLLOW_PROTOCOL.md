@@ -1,6 +1,6 @@
 # Genesis G2 native follow contract v1
 
-Implementation target: Genesis G2 0.3.0 and native Genesis build 16 or later. Existing native dictation and `/v1/commands` Send remain authoritative. Display updates never open a chat or send a prompt.
+Implementation target: Genesis G2 0.4.0 and native Genesis build 16 or later. Existing native dictation and `/v1/commands` Send remain authoritative. Display updates never open a chat or send a prompt.
 
 ## Mac companion (existing bearer authentication)
 
@@ -43,6 +43,10 @@ Add an explicit Follow this controller switch, owner/takeover affordance, and re
 
 The iPad controller + Even foreground on the iPhone is the first physical acceptance setup. Same-iPhone native control requires a real Even Beta install and a test with Genesis foreground while Even is in the background; do not claim this from the QR preview. Locking the native controller intentionally releases Follow. Testing a locked relay phone while the iPad retains ownership is a separate reliability check.
 
+## Cross-computer discovery (0.3.1)
+
+Only explicitly paired computers are eligible. After a valid inactive snapshot from the current computer, poll the others with their own credentials and confirm each snapshot's host identity against its status. Bound each probe and pace inactive discovery. Adopt exactly one active candidate only after refreshing it and rechecking the current computer; a resumed current session wins. Errors, ambiguity, opt-out, and late results after route/pairing changes must not change the selected host. Clear old drafts, replies, and acknowledgments before adopting a new host. Discovery never claims a lease or sends an open/chat command.
+
 ## Conversation view (0.3.0)
 
 `GET /api/reply` retains its existing latest-reply fields and optionally includes `turns`, an oldest-to-newest excerpt of at most six visible messages and 16,000 Unicode scalars in total. A turn has only `role` (`user` or `assistant`), `text`, optional assistant `phase`, and optional `truncated`. `turnsTruncated` marks omitted or clipped history. The reader reserves room for the most recent user and assistant messages. The response revision includes the conversation, so a new user message updates the display before a new assistant reply exists.
@@ -52,3 +56,13 @@ The excerpt comes from the exact current-account Codex thread using read-only ap
 The glasses display the authoritative conversation separately from the current native draft. A draft is not inserted into chat history before the reader returns a real user message. `queued` remains Queued; it is not a delivery confirmation. An older final answer does not establish that a newer request is complete. The protocol has no separate Sending phase, so the UI must not invent it. No transcript comparison resolves native delivery uncertainty or retries a send.
 
 Reply and Draft select which content the native page controls navigate. Page zero shows the latest content; later pages go toward older text. A draft excerpt can be paged without removing the recent conversation from view. The original complete draft remains on the native controller for review and explicit Send.
+
+## Claude Code conversation source (0.4.0)
+
+The reply payload stays provider-neutral. Claude uses `provider: "claude"` and the exact existing controller chat ID. The bridge advertises `canReadReply` only when its Claude reader is enabled. Older or disabled bridges retain draft/send Follow support and report reading unavailable.
+
+Fresh companion inventory authorizes the requested ID and title before and after the local read. The title hash alone is not transcript identity: the reader validates the current Desktop and CLI account, organization, exactly one unarchived Desktop session, its explicit CLI session UUID, and the exact project transcript. Identity is checked around the read and pinned across successful reads for the bridge lifetime. Ambiguity or changes fail closed. Intentional account/session replacement requires a bridge restart.
+
+Only visible user and assistant text on the verified main conversation ancestry is returned. Tool results, tool calls, system/internal wrappers, hidden thinking, and sidechains are excluded. Reads are bounded, partial appends do not invent messages, and clipping is explicit. Runtime state remains unknown unless independently established. Claude replies have no cross-request content cache, and in-flight reads are scoped by provider and chat. A failed Claude read clears previously displayed conversation text while preserving the native draft.
+
+Neither the reader nor its HTTP route opens Claude, resumes an agent, performs UI actions, or sends a prompt. Regular Claude web chats and remote sessions without the verified local transcript are unsupported by this adapter.

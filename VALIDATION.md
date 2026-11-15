@@ -1,4 +1,25 @@
-# Genesis G2 0.3.0 validation
+# Genesis G2 0.4.0 validation
+
+Date: 2026-11-14 (PST). Targets: Mini 1 and Mini 2. This release adds verified local Claude Code conversation reading and automatic Follow handoff among explicitly paired Macs.
+
+## Software and deployed runtime checks
+
+- 300 checks passed: 155 frontend, 34 HTTP bridge, 25 Claude reader, and 86 Codex reader checks. TypeScript, Vite production build, and diff checks passed.
+- Cross-host tests cover the current Mac retaining priority, ambiguous active hosts, bounded offline probes, stale responses, Leave-follow intent, and the current Mac resuming during the final candidate check. Discovery performs authenticated reads only and clears the previous chat/draft before a handoff.
+- The Claude reader binds the exact current-account desktop session to its indexed CLI transcript. It rejects ambiguous titles, account/session changes, unsafe paths, and foreign transcript ownership; filters tools, hidden reasoning, generated user scaffolding, and sidechains; and returns a bounded recent excerpt. Identity pins prevent a same-title chat from silently switching accounts or sessions between polls. An intentional account/session replacement requires restarting the G2 bridge.
+- Both dedicated Mac G2 runtimes are deployed as 0.4.0 with `claudeReaderEnabled: true`. Mini 1 authenticated HTTP reads for C1 and C2 returned 200 with exact requested targets, five and six visible messages, in 388 ms and 291 ms respectively. Mini 2's Codex regression read returned 200 with the exact requested target in 203 ms. No message content or private session identifiers are retained here.
+- Claude was closed on Mini 2, and its unavailable state was confirmed. Live Claude conversation reading on Mini 2 has not been verified.
+- Published private Beta: `com.pybird.genesisg2` 0.4.0, 62,450 bytes; SHA-256 `89043a5a334e4b2f09d8795acd64ba4abc0e0356011744799f2fe0c9846a30e7`. Even Hub showed **Beta build v0.4.0 Published** after reloading, for the existing one-person testing group. Local proof: `.local/beta-v040-proof.jpg`. The prior 0.3.1 package remains private. Phone installation and physical Claude conversation acceptance are still pending.
+
+## Physical acceptance and remaining checks
+
+- Mini 1 Follow synchronization, native draft display, and explicit Send were user-accepted before the Claude reader was added. These results do not establish physical acceptance of Claude conversation text on G2.
+- Actual Claude conversation display, readability, and paging on the glasses remain pending user confirmation for 0.4.0. No successful optical render is inferred from the HTTP reads or automated checks.
+- Background relay remains an explicit opt-in and may need re-enabling after reopening Even. Locked-phone relay and long-duration reliability remain unverified.
+
+---
+
+# Genesis G2 0.3.0 validation (historical)
 
 Date: 2026-11-14 (PST). Native companion: 0.2.1 / build 18 (physical flow tested on build 17; build 18 changes help text only). Target Mac: Mini 2.
 

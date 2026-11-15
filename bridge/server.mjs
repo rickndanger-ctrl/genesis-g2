@@ -6,6 +6,7 @@ import { randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { cleanFollow, cleanFeedback, InvalidFollow } from './follow.mjs';
+import { createClaudeReader } from './claude/reader.mjs';
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -94,6 +95,7 @@ export function createBridge(config, dependencies={}) {
   const upstreamAddress = new URL(upstreamURL);
   if (upstreamAddress.protocol !== 'http:' || upstreamAddress.hostname !== '127.0.0.1' || upstreamAddress.username || upstreamAddress.password || upstreamAddress.pathname !== '/') throw Error('Upstream must be the local Genesis companion.');
   const fetcher=dependencies.fetch ?? fetch;
+  const claudeReader=dependencies.readClaudeReply ?? (config.claudeReaderEnabled === true ? createClaudeReader() : null);
   let openBusy=false;
   const replyFlights=new Map();
   const replyCache=new Map();
@@ -184,14 +186,25 @@ export function createBridge(config, dependencies={}) {
       fault(503,'reader_unavailable','This Codex reply could not be read. Keep the chat open on the Mac and refresh.');
     }
   }
-  async function reply(id) {
-    const cached=replyCache.get(id);
+  async function reply(provider, selected) {
+    const id=selected.id, key=provider+':'+id;
+    // Claude IDs are title hashes, not globally unique account/session IDs.
+    // Revalidate its local account and session on every read, including repeats.
+    const cached=provider==='codex' ? replyCache.get(key) : null;
     if (cached && Date.now()-cached.at < 1500) return cached.value;
-    if (replyFlights.has(id)) return replyFlights.get(id);
+    if (replyFlights.has(key)) return replyFlights.get(key);
     if (replyFlights.size >= 2) fault(429,'reader_busy','Another reply is loading. Try again in a moment.');
     const flight=(async()=> {
-      const source=await readReply(id);
-      if (source?.ok!==true || source.provider!=='codex' || source.threadId?.toLowerCase()!==id)
+      let source;
+      if (provider==='codex') source=await readReply(id);
+      else {
+        try { source=await claudeReader({id,title:selected.title}); }
+        catch { fault(503,'reader_unavailable','This Claude conversation could not be verified. Keep its Code chat open on this Mac, then refresh.'); }
+        const current=(await chats('claude')).filter(row=>row.id===id && row.title===selected.title);
+        if (current.length!==1) fault(409,'chat_changed','The Claude chat changed while reading. Refresh its selection.');
+      }
+      const matchesID=provider==='codex' ? source?.threadId?.toLowerCase()===id : source?.threadId===id;
+      if (source?.ok!==true || source.provider!==provider || !matchesID)
         fault(503,'reply_unavailable','No verified reply is available for this thread.');
       const raw=source.reply?.text ?? '';
       if (typeof raw !== 'string') fault(502,'invalid_response','The reply format is unsupported.');
@@ -201,17 +214,17 @@ export function createBridge(config, dependencies={}) {
       const phase=text.trim() && ['final_answer','partial_answer','commentary','unknown'].includes(source.reply?.phase)
         ? source.reply.phase : undefined;
       const conversation=cleanConversation(source);
-      const value={provider:'codex',chatID:id,title:safeLabel(source.title),text,
+      const value={provider,chatID:id,title:safeLabel(source.title),text,
         ...(phase ? {phase} : {}),
         ...conversation,
-        revision:createHash('sha256').update(id+'\n'+text+'\n'+(phase ?? '')+'\n'+JSON.stringify(conversation)).digest('hex').slice(0,20),
+        revision:createHash('sha256').update(provider+'\n'+id+'\n'+text+'\n'+(phase ?? '')+'\n'+JSON.stringify(conversation)).digest('hex').slice(0,20),
         updatedAt:new Date().toISOString(),status:['working','done','idle'].includes(source.state) ? source.state : 'unknown',
         truncated:characters.length>16000 || source.reply?.truncated===true || source.limited===true};
-      replyCache.set(id,{at:Date.now(),value});
+      if (provider==='codex') replyCache.set(key,{at:Date.now(),value});
       if (replyCache.size>12) replyCache.delete(replyCache.keys().next().value);
       return value;
-    })().finally(()=>replyFlights.delete(id));
-    replyFlights.set(id,flight); return flight;
+    })().finally(()=>replyFlights.delete(key));
+    replyFlights.set(key,flight); return flight;
   }
   function json(response,status,value,extra={}) {
     response.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',...extra});
@@ -237,7 +250,7 @@ export function createBridge(config, dependencies={}) {
         if (!allowedOrigins.has(origin)) fault(403,'origin_denied','This app origin has not been paired with Genesis G2.');
         cors={'Access-Control-Allow-Origin':origin,'Vary':'Origin'};
       }
-      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.3.0'},cors);
+      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.4.0'},cors);
       if (target.pathname.startsWith('/api/')) {
         if (request.method==='OPTIONS') {
           if (!origin || !['GET','POST'].includes(request.headers['access-control-request-method'])) fault(403,'preflight_denied','This request is not allowed.');
@@ -280,21 +293,23 @@ export function createBridge(config, dependencies={}) {
         }
         if (request.method==='GET' && target.pathname==='/api/status') {
           const source=await hostStatus();
-          return json(response,200,{version:'0.3.0',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
+          return json(response,200,{version:'0.4.0',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
             id:p.id,label:safeLabel(p.name,p.id),available:p.readiness==='ready' && p.capabilities?.includes('openChat')===true,
-            canReadReply:p.id==='codex' && p.readiness==='ready',reason:safeLabel(p.reason)
+            canReadReply:p.readiness==='ready' && (p.id==='codex' || p.id==='claude' && Boolean(claudeReader)),
+            reason:p.id==='claude' && !claudeReader ? 'Claude conversation reading is not enabled on this Mac.' : safeLabel(p.reason)
           }))},cors);
         }
         const provider=providerOf(target.searchParams.get('provider') ?? 'codex');
         if (request.method==='GET' && target.pathname==='/api/profile') return json(response,200,await profile(provider),cors);
         if (request.method==='GET' && target.pathname==='/api/chats') return json(response,200,{provider,chats:await chats(provider)},cors);
         if (request.method==='GET' && target.pathname==='/api/reply') {
-          if (provider!=='codex') fault(501,'reader_unavailable','Claude chat switching is available. Reading Claude replies is not connected in this preview.');
+          if (provider==='claude' && !claudeReader) fault(501,'reader_unavailable','Claude conversation reading is not enabled on this Mac.');
           const id=chatID(target.searchParams.get('chatID'),provider);
           const source=await hostStatus();
-          if (!source.providers.some(p=>p.id==='codex' && p.readiness==='ready')) fault(503,'provider_unavailable','Open Codex on the unlocked Mac to read its reply.');
-          if (!(await chats(provider)).some(row=>row.id===id)) fault(404,'chat_missing','This chat is not in the current account. Refresh your mappings.');
-          return json(response,200,await reply(id),cors);
+          if (!source.providers.some(p=>p.id===provider && p.readiness==='ready')) fault(503,'provider_unavailable','Open the selected agent on the unlocked Mac to read its conversation.');
+          const selected=(await chats(provider)).find(row=>row.id===id);
+          if (!selected) fault(404,'chat_missing','This chat is not in the current account. Refresh your mappings.');
+          return json(response,200,await reply(provider,selected),cors);
         }
         if (request.method==='POST' && target.pathname==='/api/open') {
           if (openBusy) fault(409,'open_busy','A chat is already opening. Wait before selecting another.');

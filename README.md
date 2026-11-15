@@ -2,19 +2,20 @@
 
 A standalone controller and conversation reader for Even Realities G2. It has its own app ID (`com.pybird.genesisg2`), pairing, browser storage, and Mac bridge. It does not replace Home, the Genesis iPhone controller, or Genesis Mini firmware.
 
-The native iPhone/iPad controller and Mac companion are maintained in the separate [Genesis Microcontroller App repository](https://github.com/rickndanger-ctrl/genesis-microcontroller-app). Use its current native build 18 and the 0.3.0 bridge here for the tested conversation workflow.
+The native iPhone/iPad controller and Mac companion are maintained in the separate [Genesis Microcontroller App repository](https://github.com/rickndanger-ctrl/genesis-microcontroller-app). Use native build 18 or later and the updated companion on every paired Mac. G2 0.4.0 adds local Claude Code conversation reading; see [validation](VALIDATION.md) for deployment and physical-test status.
 
-This preview opens existing Codex and Claude chats on a paired Mac. Version 0.3 adds a terminal-style Codex view: recent **YOU** and **CODEX** messages above a separate draft box. It keeps the six existing slot assignments and colors on the phone; G2 uses monochrome green with A1–A6 / C1–C6 labels. Longer text and older messages have separate pages.
+This preview opens existing Codex and Claude chats on a paired Mac. Its terminal-style view shows recent **YOU** and **CODEX** or **CLAUDE** messages above a separate draft box. Claude reading requires an identifiable local Claude Code session; ordinary Claude web chats are not supported by this reader. It keeps the six existing slot assignments and colors on the phone; G2 uses monochrome green with A1–A6 / C1–C6 labels. Longer text and older messages have separate pages.
 
 ## What is connected
 
 - Existing six-slot profiles and chat lists from the Genesis Mac companion.
 - Codex and Claude chat selection through that companion, with exact chat IDs and mapping checks.
 - A read-only Codex conversation reader, with up to six recent visible messages, progress versus final-response phase, and explicit unknown activity state.
+- A read-only Claude Code reader bound to the current account's unique active Desktop session and exact local transcript. It returns visible user/assistant text only, with the same six-message limit.
 - Glasses chat list, conversation pages, a separate composer, computer/agent menus, and a matching phone preview.
 - Separate private pairing over Tailscale HTTPS. No public tunnel or cloud transcript service.
 
-G2 itself does not capture voice or execute Send. Version 0.2 adds **Follow this controller**: the native Genesis iPhone/iPad app handles dictation, review, and explicit Send using its existing verified route, while G2 displays the selected chat, draft, delivery state, and Codex reply pages. Approvals, shortcut execution, artifact controls, and Claude reply reading remain outside the G2 display preview. A successful Codex open request means the OS accepted the request; the real visible selection still needs device observation.
+G2 itself does not capture voice or execute Send. **Follow this controller** uses the native Genesis iPhone/iPad app for dictation, review, and explicit Send through its existing route, while G2 displays the selected chat, draft, delivery state, and supported conversation pages. Approvals, multiple-choice answers, shortcut execution, and artifact controls remain outside G2. A successful Codex open request means the OS accepted the request; the real visible selection still needs device observation.
 
 ## Try the private preview
 
@@ -27,7 +28,9 @@ The paired iPhone must have Tailscale connected, the Even app, and the G2 connec
 
 The phone's **Explore preview** is explicitly simulated and makes no computer requests. It is useful for exploring the layout, not proof of a live glasses connection.
 
-Developer QR previews can suspend when the iPhone locks or the Even app backgrounds. Genesis G2 0.3.0 is available as a separate private Beta for the authorized tester account. After accepting the invitation, use Even → Me → Beta tester → Genesis G2 → Install or Update. The conversation layout requires the updated 0.3.0 Mac bridge. The new conversation layout, paging, separate released draft, and same-iPhone native control with Even in the background are user-confirmed on this setup. Locked-phone relay and long-duration reliability remain unverified. Never replace the Home package to install Genesis G2.
+Developer QR previews can suspend when the iPhone locks or the Even app backgrounds. Use the separate private Beta for the authorized tester account: Even → Me → Beta tester → Genesis G2 → Install or Update. Update each Mac bridge as well. The Codex conversation layout, paging, separate released draft, and same-iPhone native control with Even in the background are user-confirmed. Locked-phone relay and long-duration reliability remain unverified. Never replace the Home package to install Genesis G2.
+
+To add another Mac to the installed Beta, tap **+** beside the computers and fill **Computer name**, **Bridge address**, and that Mac's private **G2 pairing token**, then **Save and connect**. A developer QR preview may not import its pairing into the installed Beta; reopen the Beta and verify that both computers are listed. Never use the native companion's separate token. If transferring a private token file, verify the exact receiving device name first.
 
 ## Use the native controller with G2
 
@@ -41,7 +44,9 @@ Use native Genesis build 16 or later and the updated Mac companion. Build 17 add
 
 One native device controls the display at a time. Taking over from another iPhone/iPad is explicit. Leaving the native app or changing computer/agent ends follow; the display lease also expires after 45 seconds without renewal. Transient display drafts are held in memory only, and expiry clears them. Original native drafts and Send receipts retain their existing storage behavior. Turning Follow on keeps that controller's screen awake until Follow stops.
 
-Claude selection, draft preview, and native Send status can follow too. Its reply view explicitly reports that Claude reply reading is not connected. Use **Leave follow** inside Genesis G2 to return to its standalone controls; this does not steal ownership from the native device.
+Claude selection, draft preview, and native Send status can follow too. With the updated bridge, a locally indexed Claude Code chat also shows its conversation. The reader rejects duplicate active titles, mismatched accounts, missing local transcripts, and changed session identities instead of guessing. Its identity binding remains pinned until the G2 bridge restarts; intentionally replacing a same-named Claude session or changing accounts requires restarting that bridge. Use **Leave follow** inside Genesis G2 to return to its standalone controls; this does not steal ownership from the native device.
+
+When the current Mac has no active Follow session, G2 can discover exactly one active session on another explicitly paired Mac. It uses each Mac's own token, preserves an active current Mac, rejects ambiguous choices, and sends no chat-open or Send commands while discovering. A failed current connection does not trigger an automatic switch. Choosing **Leave follow** pauses this discovery until **Resume follow** or an explicit different-computer selection.
 
 A same-iPhone workflow requires the installed Even Beta. Inside Genesis G2, enable **Try background relay — Even Beta only**, then open the native Genesis app and enable Follow. Enable this option again after reopening or updating the package; it defaults off. If an iPad still owns the display, either turn its Follow off first, or tap **Take over from iPad**, then **Follow this iPhone**. The native controller must stay open; leaving it intentionally releases Follow. Initial same-phone control is user-confirmed; phone lock is a separate pending test. [Follow protocol](FOLLOW_PROTOCOL.md) documents the display-only boundary.
 
@@ -56,6 +61,7 @@ npm ci
 npm run build
 npm run test:frontend
 node --test tests/bridge.test.mjs
+node --test bridge/claude/reader.test.mjs
 bash bridge/codex/test.sh
 bash bridge/codex/build.sh
 node bridge/setup.mjs --name 'Mini 2' --origin 'https://YOUR-MAC.YOUR-TAILNET.ts.net:8453'
@@ -107,12 +113,12 @@ Install the official `@evenrealities/evenhub-cli` if it is not already available
 
 ```sh
 node bridge/package-config.mjs
-evenhub pack .local/app.json dist -o .local/genesis-g2-0.3.0.ehpk --sdk-ver 0.0.16
+evenhub pack .local/app.json dist -o .local/genesis-g2-0.4.0.ehpk --sdk-ver 0.0.16
 ```
 
 `.local`, generated packages, build products, tokens and logs are excluded from Git. The shared `app.json` has an empty network whitelist deliberately; a private package must name its destination explicitly. The package contains no pairing token. Uploading, Beta distribution and public publication are separate from packaging.
 
-`package-config.mjs` adds only the current Mac's exact HTTPS origin. A packaged multi-Mac setup must list every intended Mac's exact origin in `.local/app.json` before packing, and configure the matching private bridges. The tested deployment currently pairs Mini 2; additional G2 host setups are not claimed as validated.
+`package-config.mjs` adds only the current Mac's exact HTTPS origin. A packaged multi-Mac setup must list every intended Mac's exact origin in `.local/app.json` before packing, and configure the matching private bridges. Mini 2 Codex and Mini 1 Claude Follow/draft/send were user-confirmed; the latter's original acceptance did not include conversation reading. New reader acceptance is tracked separately in `VALIDATION.md`.
 
 ## Safety and verification
 

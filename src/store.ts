@@ -1,6 +1,6 @@
 import { GatewayError } from './api';
 import { DEMO_HOST, DemoGateway } from './demo';
-import type { Availability, Chat, FollowFeedback, FollowSession, Gateway, Host, HostStatus, OpenResult, Provider, Reply, Slot } from './types';
+import type { Availability, Chat, FollowFeedback, FollowSession, FollowSnapshot, Gateway, Host, HostStatus, OpenResult, Provider, Reply, Slot } from './types';
 
 export type View = 'slots' | 'reader' | 'hosts' | 'providers';
 export type State = {
@@ -12,6 +12,7 @@ export type State = {
 };
 const emptySlots = (): Slot[] => Array.from({ length: 6 }, (_, i) => ({ slot: i + 1, label: 'Unassigned', chatID: null, kind: 'empty' }));
 const message = (error: unknown) => error instanceof GatewayError ? error.message : 'The request could not be completed. Refresh to try again.';
+const ambiguousFollow = 'More than one paired Mac has Follow active. Choose a computer above.';
 
 export class ControllerStore {
   state: State;
@@ -24,6 +25,7 @@ export class ControllerStore {
   private followEpoch = 0;
   private followRequest = new AbortController();
   private followInFlight = false;
+  private lastFollowDiscoveryAt = -Infinity;
   private followExpiry: ReturnType<typeof setTimeout> | null = null;
   private lastFollowReplyAt = 0;
   private lastFeedback = '';
@@ -45,7 +47,7 @@ export class ControllerStore {
   subscribe(listener: (state: State) => void): () => void { this.listeners.add(listener); listener(this.state); return () => this.listeners.delete(listener); }
   private emit() { for (const listener of this.listeners) listener(this.state); }
   private invalidateFollow() {
-    this.followEpoch++; this.followRequest.abort(); this.followRequest = new AbortController(); this.followInFlight = false; this.lastFeedback = ''; this.acknowledgedFrame = null;
+    this.followEpoch++; this.followRequest.abort(); this.followRequest = new AbortController(); this.followInFlight = false; this.lastFollowDiscoveryAt = -Infinity; this.lastFeedback = ''; this.acknowledgedFrame = null;
     if (this.followExpiry) clearTimeout(this.followExpiry); this.followExpiry = null;
   }
   private clearSelection() {
@@ -60,11 +62,13 @@ export class ControllerStore {
     this.replyGeneration++; this.replyInFlight = false;
     Object.assign(this.state, { status: null, slots: emptySlots(), chats: [], selected: null, selectedSlot: null, reply: null, page: 0, view: 'slots', focus: 0, error: null, connected: false, openStatus: null, busy: false, follow: null, followEnabled: true, followNotice: null, followEnded: false });
   }
-  async setHost(id: string) { if (!this.state.hosts.some(h => h.id === id)) return; this.resetRoute(); this.state.hostID = id; this.state.demo = false; this.emit(); await this.refresh(); }
+  async setHost(id: string) { if (!this.state.hosts.some(h => h.id === id)) return; const enabled = this.state.followEnabled || id !== this.state.hostID; this.resetRoute(); this.state.hostID = id; this.state.followEnabled = enabled; this.state.demo = false; this.emit(); await this.refresh(); }
   async setProvider(provider: Provider) { if (this.manualControlsPaused) return; if (provider === this.state.provider) { this.navigate('slots'); return; } const followEnabled = this.state.followEnabled; this.resetRoute(); this.state.followEnabled = followEnabled; this.state.provider = provider; this.emit(); await this.refresh(); }
-  async setDemo(enabled: boolean) { this.resetRoute(); this.state.demo = enabled; this.emit(); await this.refresh(); }
+  async setDemo(enabled: boolean) { const followEnabled = this.state.followEnabled; this.resetRoute(); this.state.followEnabled = followEnabled; this.state.demo = enabled; this.emit(); await this.refresh(); }
   async setHosts(hosts: Host[], selectedID?: string) {
-    this.resetRoute(); this.state.hosts = hosts; this.state.hostID = selectedID ?? (hosts.some(h => h.id === this.state.hostID) ? this.state.hostID : hosts[0]?.id ?? null); this.state.demo = false; this.emit(); await this.refresh();
+    const id = selectedID ?? (hosts.some(h => h.id === this.state.hostID) ? this.state.hostID : hosts[0]?.id ?? null);
+    const enabled = this.state.followEnabled || id !== this.state.hostID;
+    this.resetRoute(); this.state.hosts = hosts; this.state.hostID = id; this.state.followEnabled = enabled; this.state.demo = false; this.emit(); await this.refresh();
   }
   async refresh() {
     if (this.state.follow) { await this.pollFollow(); await this.refreshReply(); return; }
@@ -133,8 +137,11 @@ export class ControllerStore {
   async refreshReply() {
     const host = this.host; const selected = this.state.selected;
     if (!host || !selected || this.replyInFlight) return;
-    if (this.state.follow && (this.state.follow.state.view === 'home' || this.state.provider !== 'codex')) return;
-    if (!this.state.follow && !this.availability?.canReadReply) { this.state.error = this.availability?.reason || 'Chat switching is available. Reading replies for this agent is not connected in this preview.'; this.emit(); return; }
+    if (this.state.follow && this.state.follow.state.view === 'home') return;
+    if (!this.availability?.available || !this.availability.canReadReply) {
+      if (!this.state.follow) { this.state.error = this.availability?.reason || 'Chat switching is available. Reading replies for this agent is not connected on this Mac.'; this.emit(); }
+      return;
+    }
     const route = this.route; const generation = ++this.replyGeneration; const provider = this.state.provider; const signal = this.selection.signal;
     this.replyInFlight = true;
     if (this.state.follow) this.lastFollowReplyAt = Date.now();
@@ -143,22 +150,31 @@ export class ControllerStore {
       if (route !== this.route || generation !== this.replyGeneration || signal.aborted) return;
       if (reply.chatID !== selected.id || reply.provider !== provider) throw new GatewayError('wrong_chat', 'A reply arrived for a different chat and was ignored. Refresh to try again.');
       this.state.reply = reply; this.state.error = null;
-    } catch (error) { if (route === this.route && !signal.aborted) this.state.error = message(error); }
+    } catch (error) {
+      if (route === this.route && !signal.aborted) {
+        this.state.error = message(error);
+        // Claude's public controller ID is title-derived. A failed identity
+        // check may mean the account/session changed, so retire its old text.
+        if (provider === 'claude') this.state.reply = null;
+      }
+    }
     finally { if (generation === this.replyGeneration) { this.replyInFlight = false; this.emit(); } }
   }
   async pollFollow() {
     this.expireFollow();
     const host = this.host;
     if (!host || this.state.demo || !this.state.followEnabled || !this.api.follow || this.followInFlight) return;
-    const epoch = this.followEpoch; const signal = this.followRequest.signal;
+    const epoch = this.followEpoch; const signal = this.followRequest.signal; const api = this.api;
     this.followInFlight = true;
     try {
-      const snapshot = await this.api.follow(host, signal);
+      const [status, snapshot] = await Promise.all([this.state.status ?? api.status(host, signal), api.follow!(host, signal)]);
       if (epoch !== this.followEpoch || signal.aborted || !this.state.followEnabled) return;
-      if (this.state.status && snapshot.hostID !== this.state.status.host.id) throw new GatewayError('wrong_host', 'Native follow returned a different computer and was ignored.');
+      if (snapshot.hostID !== status.host.id) throw new GatewayError('wrong_host', 'Native follow returned a different computer and was ignored.');
+      this.state.status = status;
       if (!snapshot.active || Date.parse(snapshot.expiresAt) <= Date.now()) {
         if (this.state.follow) this.endFollow('Native follow ended. Enable Follow this controller in Genesis to reconnect.');
         else if (!snapshot.active && snapshot.supported === false && this.state.followNotice !== 'Update the Genesis companion to enable native follow.') { this.state.followNotice = 'Update the Genesis companion to enable native follow.'; this.emit(); }
+        await this.discoverFollow(host, api, epoch, signal);
         return;
       }
       this.applyFollow(snapshot);
@@ -168,6 +184,55 @@ export class ControllerStore {
       if (this.state.follow) this.endFollow('Native follow disconnected. Reconnect Genesis and Tailscale to continue.');
       else if (this.state.followNotice && this.state.followNotice !== message(error)) { this.state.followNotice = message(error); this.emit(); }
     } finally { if (epoch === this.followEpoch) this.followInFlight = false; }
+  }
+  private async discoverFollow(current: Host, api: Gateway, epoch: number, signal: AbortSignal) {
+    const others = this.state.hosts.filter(host => host.id !== current.id);
+    if (!others.length || Date.now() - this.lastFollowDiscoveryAt < 3000) return;
+    this.lastFollowDiscoveryAt = Date.now();
+    const valid = () => epoch === this.followEpoch && !signal.aborted && this.state.followEnabled && !this.state.demo && this.state.hostID === current.id;
+    // Each probe uses that paired host's own token and authoritative status ID.
+    // Slow/offline computers are bounded, and no claim/open/send is issued.
+    const probes = await Promise.all(others.map(host => this.probeFollow(host, api, signal)));
+    if (!valid()) return;
+    const candidates = probes.filter((probe): probe is NonNullable<typeof probe> => Boolean(probe?.snapshot.active && Date.parse(probe.snapshot.expiresAt) > Date.now()));
+    if (!candidates.length) {
+      if (this.state.followNotice === ambiguousFollow) { this.state.followNotice = 'Waiting for Follow this controller on a paired Mac.'; this.emit(); }
+      return;
+    }
+    // Do not move away if the current computer resumed while discovery waited.
+    const stillCurrent = await this.probeFollow(current, api, signal);
+    if (!valid() || !stillCurrent) return;
+    if (stillCurrent.snapshot.active && Date.parse(stillCurrent.snapshot.expiresAt) > Date.now()) { this.state.status = stillCurrent.status; this.applyFollow(stillCurrent.snapshot); return; }
+    if (candidates.length > 1) { this.state.followNotice = ambiguousFollow; this.emit(); return; }
+    const candidate = candidates[0];
+    // Read again after the other probes so a released/expired candidate cannot
+    // be adopted from an earlier response. Epochs also guard pairing changes.
+    const fresh = await this.probeFollow(candidate.host, api, signal);
+    if (!valid() || !fresh?.snapshot.active || Date.parse(fresh.snapshot.expiresAt) <= Date.now()) return;
+    // The candidate refresh may also wait. Give a resumed current owner the
+    // final decision, rather than switching on the earlier inactive response.
+    const currentAtCommit = await this.probeFollow(current, api, signal);
+    if (!valid() || !currentAtCommit) return;
+    if (currentAtCommit.snapshot.active && Date.parse(currentAtCommit.snapshot.expiresAt) > Date.now()) { this.state.status = currentAtCommit.status; this.applyFollow(currentAtCommit.snapshot); return; }
+    if (Date.parse(fresh.snapshot.expiresAt) <= Date.now()) return;
+    this.resetRoute(); // Clears old chat, draft, readers, and pending feedback first.
+    this.state.hostID = fresh.host.id; this.state.status = fresh.status;
+    this.applyFollow(fresh.snapshot);
+  }
+  private probeFollow(host: Host, api: Gateway, signal: AbortSignal): Promise<{ host: Host; status: HostStatus; snapshot: FollowSnapshot } | null> {
+    if (!api.follow || signal.aborted) return Promise.resolve(null);
+    return new Promise(resolve => {
+      const request = new AbortController(); let settled = false;
+      const finish = (value: { host: Host; status: HostStatus; snapshot: FollowSnapshot } | null) => {
+        if (settled) return; settled = true; clearTimeout(timer); signal.removeEventListener('abort', cancel); request.abort(); resolve(value);
+      };
+      const cancel = () => finish(null);
+      const timer = setTimeout(cancel, 3000);
+      signal.addEventListener('abort', cancel, { once: true });
+      void Promise.all([api.status(host, request.signal), api.follow!(host, request.signal)]).then(([status, snapshot]) => {
+        finish(snapshot.hostID === status.host.id ? { host, status, snapshot } : null);
+      }, cancel);
+    });
   }
   private applyFollow(session: FollowSession) {
     const previous = this.state.follow; const target = (s: FollowSession) => `${s.sourceID}:${s.state.provider}:${s.state.chatID ?? ''}`;
@@ -192,7 +257,7 @@ export class ControllerStore {
     if (this.followExpiry) clearTimeout(this.followExpiry);
     this.followExpiry = setTimeout(() => this.expireFollow(), Math.max(0, Date.parse(session.expiresAt) - Date.now()) + 1);
     if (!session.feedback?.connected || !previous || JSON.stringify(previous) !== JSON.stringify(session)) this.emit();
-    if (session.state.view !== 'home' && session.state.provider === 'codex' && session.state.chatID && (changed || refreshRequested || paneChanged || Date.now() - this.lastFollowReplyAt >= 2000)) void this.refreshReply();
+    if (session.state.view !== 'home' && session.state.chatID && (changed || refreshRequested || paneChanged || Date.now() - this.lastFollowReplyAt >= 2000)) void this.refreshReply();
   }
   expireFollow(now = Date.now()) {
     if (this.state.follow && Date.parse(this.state.follow.expiresAt) <= now) this.endFollow('Native follow expired. Enable Follow this controller in Genesis to reconnect.');

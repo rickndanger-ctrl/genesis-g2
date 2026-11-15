@@ -93,8 +93,8 @@ describe('display-only follow and standalone isolation', () => {
     expect(f.store.state.selected?.id).toBe('one'); expect(f.store.state.view).toBe('reader'); expect(f.store.state.page).toBe(0); expect(f.api.open).not.toHaveBeenCalled();
   });
   it('keeps Claude replies explicitly unavailable, but shows its draft, recording and truthful Send state', async () => {
-    const f = fixture(session({ provider: 'claude' })); await f.store.refresh(); await f.store.pollFollow();
-    expect(followPresentation(f.store.state)?.content.replace(/\s+/g, ' ')).toContain('not connected yet'); expect(f.api.reply).not.toHaveBeenCalled();
+    const f = fixture(session({ provider: 'claude' })); const status = await f.api.status(host, new AbortController().signal); status.providers.find(provider => provider.id === 'claude')!.canReadReply = false; vi.mocked(f.api.status).mockResolvedValue(status); await f.store.refresh(); await f.store.pollFollow();
+    expect(followPresentation(f.store.state)?.content.replace(/\s+/g, ' ')).toContain('Claude replies are unavailable on this Mac'); expect(f.api.reply).not.toHaveBeenCalled();
     f.set(session({ provider: 'claude', view: 'draft', draft: '**Keep my literal words**', recording: true, sendState: 'queued' }, { revision: 2 }));
     await f.store.pollFollow(); const display = followPresentation(f.store.state)!;
     expect(display.composer).toContain('**Keep my literal words**'); expect(display.label).toBe('Draft review'); expect(display.status).toBe('Voice input'); expect(display.receipt).toBe('Send queued'); expect(display.receipt).not.toBe('Sent'); expect(f.api.reply).not.toHaveBeenCalled();

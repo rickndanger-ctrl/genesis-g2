@@ -11,12 +11,15 @@ export function followPresentation(state: State) {
   if (!follow) return null;
   const display = follow.state;
   const slot = display.slotIndex === null ? '' : `${slotName(display.provider, display.slotIndex + 1)} / `;
-  const exactReply = state.reply?.provider === display.provider && state.reply.chatID === display.chatID ? state.reply : null;
+  const capability = state.status?.providers.find(provider => provider.id === display.provider);
+  const canRead = capability?.available === true && capability.canReadReply === true;
+  const unavailable = state.status !== null && !canRead;
+  const exactReply = canRead && state.reply?.provider === display.provider && state.reply.chatID === display.chatID ? state.reply : null;
   const history = replyConversation(exactReply);
   let conversation = history.pages;
   let ready = true;
   if (display.view === 'home') conversation = ['Choose a chat in Genesis.\n\nYour conversation stays above.\nYour draft stays in the composer.'];
-  else if (display.provider === 'claude') conversation = ['Claude reply reading is not\nconnected yet.\n\nYour current draft appears below.\nTalk and Send stay in Genesis.'];
+  else if (unavailable) conversation = replyPages(capability?.reason?.trim() || `${providerName(display.provider)} replies are unavailable on this Mac. Update its Genesis bridge to read this conversation. Your draft stays below; Talk and Send stay in Genesis.`, 42, 5);
   else if (!exactReply && state.error) { conversation = replyPages(state.error, 42, 5); ready = false; }
   else if (!exactReply) { conversation = ['Loading this conversation…']; ready = false; }
   const draftPages = composerPages(display.draft, display.recording, display.sendState, follow.sourceName);
@@ -29,7 +32,7 @@ export function followPresentation(state: State) {
   const composerPage = reviewingDraft ? page : 0;
   const receipt = sendReceiptLabel(display.sendState);
   const status = display.recording ? 'Voice input' : receipt || (exactReply?.status === 'working' ? 'Working' : display.draft.trim() ? 'Draft, not sent' : '');
-  const label = reviewingDraft ? 'Draft review' : display.view === 'home' ? 'Home' : history.replyOnly ? 'Latest reply only' : 'Recent conversation';
+  const label = reviewingDraft ? 'Draft review' : display.view === 'home' ? 'Home' : unavailable ? 'Reply unavailable' : history.replyOnly ? 'Latest reply only' : 'Recent conversation';
   const paneLabel = reviewingDraft ? 'Draft' : history.replyOnly && exactReply ? 'Reply only' : history.truncated ? 'Recent excerpt' : 'Conversation';
   const pageLabel = `${paneLabel} · ${page === 0 ? 'Latest' : 'Older'} ${page + 1}/${pages.length}`;
   const footerPane = reviewingDraft ? 'Draft' : display.view === 'home' ? 'Home' : history.replyOnly && exactReply ? 'Reply only' : history.truncated ? 'Excerpt' : 'Chat';
@@ -45,6 +48,6 @@ export function followPresentation(state: State) {
     context: `follow-conversation:${state.hostID}:${follow.hostID}:${follow.sourceID}:${display.provider}:${display.chatID ?? ''}:${display.view}:${display.refreshNonce}`,
     feedback: feedback ? { payload: feedback, hostID: follow.hostID, sourceID: follow.sourceID } : undefined,
     truncated: history.truncated,
-    replyOnly: history.replyOnly && display.provider === 'codex' && Boolean(exactReply),
+    replyOnly: history.replyOnly && Boolean(exactReply),
   };
 }

@@ -32,7 +32,9 @@ export function glassesFrame(state: State, hostName: string): GlassesFrame {
   if (state.view === 'hosts') return { kind: 'list', title: `${prefix}Choose computer`, content: '', footer: 'Swipe: choose  |  Tap: connect', items: state.hosts.length ? state.hosts.map(h => truncateUTF8(h.name, 63)) : ['Pair a computer on your phone'], context };
   if (state.view === 'providers') return { kind: 'list', title: `${prefix}Choose agent`, content: '', footer: 'Swipe: choose  |  Tap: select', items: ['Codex', 'Claude'], context };
   if (state.view === 'reader') {
-    const conversation = replyConversation(state.reply); const pages = state.reply ? conversation.pages : [state.busy ? 'Opening chat…' : 'No conversation text is available yet.'];
+    const capability = state.status?.providers.find(provider => provider.id === state.provider);
+    const reply = capability?.canReadReply === true && capability.available && state.reply?.provider === state.provider && state.reply.chatID === state.selected?.id ? state.reply : null;
+    const conversation = replyConversation(reply); const pages = reply ? conversation.pages : [state.busy ? 'Opening chat…' : 'No conversation text is available yet.'];
     const page = Math.min(state.page, pages.length - 1);
     const slot = state.selectedSlot ? `${slotName(state.provider, state.selectedSlot)} / ` : '';
     const label = conversation.replyOnly ? 'Reply only' : conversation.truncated ? 'Recent excerpt' : 'Conversation';

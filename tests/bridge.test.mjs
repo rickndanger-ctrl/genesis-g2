@@ -29,12 +29,13 @@ async function fixture(t, options={}) {
       if (path==='/v1/status') result={hostID,hostName:'Fixture Mac',providers:[{id:'codex',name:'Codex',readiness:'ready',capabilities:['openChat']},{id:'claude',name:'Claude',readiness:'ready',capabilities:['openChat']}]};
       else if (path==='/v1/display-session') return options.follow ? options.follow() : new Response('{}',{status:404});
       else if (path==='/v1/display-feedback') { feedback.push(JSON.parse(init.body)); return options.feedback ? options.feedback() : options.follow(); }
-      else if (path==='/v1/chats') result={chats:[{id,title:'First thread',state:'Saved'},{id:second,title:'Second thread',state:'Saved'}]};
+      else if (path==='/v1/chats') result={chats:options.inventory ? options.inventory(new URL(url).searchParams.get('provider')) : [{id,title:'First thread',state:'Saved'},{id:second,title:'Second thread',state:'Saved'}]};
       else if (path==='/v1/profile') result=profile;
       else if (path==='/v1/commands') { commands.push(JSON.parse(init.body)); if (options.commandDelay) await new Promise(resolve=>setTimeout(resolve,options.commandDelay)); result={status:'confirmed'}; }
       else throw Error('Unexpected upstream operation');
       return new Response(JSON.stringify(result),{status:200});
     },
+    ...(options.claudeReader ? {readClaudeReply:options.claudeReader} : {}),
     readReply:async(value)=> {
       reads.push(value);
       if (options.reader) return options.reader(value);
@@ -237,6 +238,53 @@ test('reply is read-only, bounded and never makes up working status',async t=>{
   assert.equal((await request('/api/reply?provider=codex&chatID=invalid')).status,422);
   assert.equal((await request('/api/reply?provider=codex&chatID=44444444-4444-4444-8444-444444444444')).status,404);
   assert.deepEqual(reads,[id]);
+});
+test('Claude capability is enabled only when its reader is configured',async t=>{
+  const {request}=await fixture(t,{claudeReader:async()=>{throw Error('unused');}});
+  const data=await(await request('/api/status')).json();
+  assert.equal(data.providers.find(row=>row.id==='claude').canReadReply,true);
+});
+test('Claude returns only verified conversation fields without executing actions',async t=>{
+  const targets=[];
+  const {request,commands,reads}=await fixture(t,{claudeReader:async target=>{
+    targets.push(target);return {ok:true,provider:'claude',threadId:target.id,title:target.title,state:'unknown',reply:{text:'Claude reply',phase:'final_answer'},turns:[{role:'user',text:'My request'},{role:'assistant',text:'Claude reply',phase:'final_answer'}],privatePath:'do not expose'};
+  }});
+  const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,200);
+  const data=await response.json();assert.equal(data.provider,'claude');assert.equal(data.chatID,id);
+  assert.deepEqual(targets,[{id,title:'First thread'}]);assert.deepEqual(data.turns.map(row=>row.role),['user','assistant']);
+  assert.equal(data.privatePath,undefined);assert.equal(data.status,'unknown');assert.equal(commands.length,0);assert.equal(reads.length,0);
+});
+test('Claude rejects mismatched reader identities and does not leak their content',async t=>{
+  for(const wrong of [{provider:'codex',threadId:id},{provider:'claude',threadId:second}]){
+    const {request}=await fixture(t,{claudeReader:async()=>({ok:true,...wrong,reply:{text:'wrong private conversation'}})});
+    const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,503);
+    assert.equal((await response.text()).includes('wrong private conversation'),false);
+  }
+});
+test('Claude and Codex replies never share a cache entry or in-flight request',async t=>{
+  const {request}=await fixture(t,{claudeReader:async target=>({ok:true,provider:'claude',threadId:target.id,reply:{text:'Claude-only'}})});
+  const values=await Promise.all(['codex','claude'].map(async provider=>(await request('/api/reply?provider='+provider+'&chatID='+id)).json()));
+  assert.equal(values[0].text,'A verified reply.');assert.equal(values[1].text,'Claude-only');
+  assert.notEqual(values[0].revision,values[1].revision);
+});
+test('Claude revalidates the inventory after reading and rejects renamed targets',async t=>{
+  let count=0;
+  const {request}=await fixture(t,{inventory:()=>[{id,title:++count===1 ? 'First thread' : 'Renamed thread'}],
+    claudeReader:async target=>({ok:true,provider:'claude',threadId:target.id,reply:{text:'stale conversation'}})});
+  const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,409);
+  assert.equal((await response.text()).includes('stale conversation'),false);
+});
+test('repeated Claude reads revalidate local account/session instead of returning cached text',async t=>{
+  let count=0;
+  const {request}=await fixture(t,{claudeReader:async target=>({ok:true,provider:'claude',threadId:target.id,reply:{text:'Read '+(++count)}})});
+  const first=await(await request('/api/reply?provider=claude&chatID='+id)).json();
+  const secondRead=await(await request('/api/reply?provider=claude&chatID='+id)).json();
+  assert.equal(first.text,'Read 1');assert.equal(secondRead.text,'Read 2');assert.equal(count,2);
+});
+test('Claude parser failures are sanitized and cannot reveal private paths or text',async t=>{
+  const {request,commands}=await fixture(t,{claudeReader:async()=>{throw Error('/private/user/path secret transcript');}});
+  const response=await request('/api/reply?provider=claude&chatID='+id);assert.equal(response.status,503);
+  const body=await response.text();assert.equal(body.includes('/private/'),false);assert.equal(body.includes('secret transcript'),false);assert.equal(commands.length,0);
 });
 test('verified reply phase is independent from unknown runtime state',async t=>{
   for (const phase of ['final_answer','partial_answer','commentary','unknown']) {

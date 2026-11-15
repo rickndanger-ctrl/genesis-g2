@@ -4,7 +4,9 @@
 - The remaining failure was the glasses relay. Both Mac bridges recorded repeated rejected preflights from the updated installed Even app's new exact loopback origin. Mini 1 still held the active C1 Follow session and released draft, but had no glasses display acknowledgment.
 - Added only the newly observed exact origin to each private bridge configuration and restarted the dedicated G2 services. Existing tokens, chat mappings, Claude, and native companions were preserved; pre-change configuration backups are retained locally.
 - Both bridges then returned preflight 204 and paired status 200 for that origin, while rejecting missing credentials with 401 and an unlisted origin with 403. No wildcard origin or authentication exception was introduced.
-- Physical glasses recovery after reconnect is pending. A future Even restart/update can change its loopback port again; this exact-origin repair does not claim to solve automatic origin enrollment.
+- Reopening Even during the check changed its loopback port a second time. The second newly observed exact origin was added to both bridges without reopening the phone app again. Actual relay traffic then returned 200 for Follow and Claude reply reads, and the SDK acknowledged Mini 1 / Claude / C1 revision 35, conversation page 1 of 13, with the released draft retained separately.
+- The user confirmed: **OMAC 1's Claude conversation is visible on the glasses.** This is physical acceptance of the new reader/display on Mini 1. Claude paging and a new Send were not exercised in this recovery check.
+- A future Even restart/update can change its loopback port again; this exact-origin repair does not solve automatic origin enrollment. A scoped renewal-credential flow was reviewed as a future repair, not implemented.
 
 ---
 
@@ -24,7 +26,7 @@ Date: 2026-11-14 (PST). Targets: Mini 1 and Mini 2. This release adds verified l
 ## Physical acceptance and remaining checks
 
 - Mini 1 Follow synchronization, native draft display, and explicit Send were user-accepted before the Claude reader was added. These results do not establish physical acceptance of Claude conversation text on G2.
-- Actual Claude conversation display, readability, and paging on the glasses remain pending user confirmation for 0.4.0. No successful optical render is inferred from the HTTP reads or automated checks.
+- Claude conversation visibility on Mini 1 was physically confirmed on 2026-11-15 in the recovery check above. Paging remains unverified for Claude; the earlier Codex paging acceptance is separate.
 - Background relay remains an explicit opt-in and may need re-enabling after reopening Even. Locked-phone relay and long-duration reliability remain unverified.
 
 ---

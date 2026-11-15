@@ -1,0 +1,7 @@
+node_modules/
+dist/
+bridge/bin/
+.local/
+*.ehpk
+*.log
+.DS_Store

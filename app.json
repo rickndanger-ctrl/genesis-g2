@@ -1,0 +1,10 @@
+{
+  "package_id": "com.pybird.genesisg2",
+  "name": "Genesis G2",
+  "version": "0.1.0",
+  "edition": "202601",
+  "min_sdk_version": "0.0.16",
+  "entrypoint": "index.html",
+  "permissions": [{ "name": "network", "desc": "Connect to your paired Genesis computers to open chats and read replies.", "whitelist": [] }],
+  "supported_languages": ["en"]
+}

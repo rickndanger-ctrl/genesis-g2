@@ -24,7 +24,10 @@ export function cleanFollow(value,hostID,now=Date.now()) {
   requireValid(object(value) && value.version===1 && typeof value.active==='boolean' &&
     uuid.test(value.hostID ?? '') && value.hostID.toLowerCase()===hostID.toLowerCase() &&
     integer(value.revision,0,Number.MAX_SAFE_INTEGER));
+  for (const key of ['supportsKeepReading','keepReading','readingOnly'])
+    requireValid(!Object.hasOwn(value,key) || typeof value[key]==='boolean');
   const result={supported:true,version:1,hostID,active:value.active,revision:value.revision};
+  if (typeof value.supportsKeepReading==='boolean') result.supportsKeepReading=value.supportsKeepReading;
   if (!value.active) return result; // Explicitly discard drafts and stale ownership metadata.
   requireValid(uuid.test(value.sourceID ?? '') && ['iPhone','iPad'].includes(value.sourceName) &&
     typeof value.expiresAt==='string' && Number.isFinite(Date.parse(value.expiresAt)));
@@ -35,8 +38,12 @@ export function cleanFollow(value,hostID,now=Date.now()) {
     integer(s.page,0,999) && typeof s.draft==='string' && Array.from(s.draft).length<=16000 &&
     typeof s.recording==='boolean' && ['none','queued','confirmed','uncertain','failed'].includes(s.sendState) &&
     integer(s.refreshNonce,0,Number.MAX_SAFE_INTEGER));
+  requireValid(!(value.keepReading===true && value.supportsKeepReading===false) &&
+    (value.readingOnly!==true || (value.keepReading===true && s.chatID!==null && s.view==='reply' &&
+      s.page===0 && s.draft==='' && s.recording===false && s.sendState==='none')));
   Object.assign(result,{sourceID:value.sourceID,sourceName:value.sourceName,expiresAt:value.expiresAt,
     state:Object.fromEntries(stateKeys.map(key=>[key,s[key]]))});
+  for (const key of ['keepReading','readingOnly']) if (typeof value[key]==='boolean') result[key]=value[key];
   if (typeof value.chatTitle==='string') result.chatTitle=value.chatTitle.slice(0,240);
   const f=value.feedback;
   if (object(f) && f.revision===value.revision && integer(f.pageCount,1,1000) &&

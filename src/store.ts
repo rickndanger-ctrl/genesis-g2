@@ -236,7 +236,10 @@ export class ControllerStore {
   }
   private applyFollow(session: FollowSession) {
     const previous = this.state.follow; const target = (s: FollowSession) => `${s.sourceID}:${s.state.provider}:${s.state.chatID ?? ''}`;
-    const changed = !previous || target(previous) !== target(session);
+    // Parking is a privacy boundary, even when the chat and source stay the
+    // same: retire old draft frames and in-flight reads before showing it.
+    const readingChanged = Boolean(previous?.readingOnly) !== Boolean(session.readingOnly);
+    const changed = !previous || target(previous) !== target(session) || readingChanged;
     const refreshRequested = Boolean(previous && previous.state.refreshNonce !== session.state.refreshNonce);
     const paneChanged = Boolean(previous && previous.state.view !== session.state.view);
     if (changed) {

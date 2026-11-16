@@ -17,9 +17,10 @@ export type FollowFeedback = { revision: number; provider: Provider; chatID: str
 export type FollowSession = {
   version: 1; hostID: string; active: true; revision: number; sourceID: string;
   sourceName: 'iPhone' | 'iPad'; expiresAt: string; chatTitle?: string; state: DisplayState;
+  supportsKeepReading?: boolean; keepReading?: boolean; readingOnly?: boolean;
   feedback?: Pick<FollowFeedback, 'revision' | 'pageCount' | 'renderedPage' | 'connected'>;
 };
-export type FollowSnapshot = FollowSession | { version: 1; hostID: string; active: false; revision: number; supported?: boolean };
+export type FollowSnapshot = FollowSession | { version: 1; hostID: string; active: false; revision: number; supported?: boolean; supportsKeepReading?: boolean };
 export interface Gateway {
   status(host: Host, signal: AbortSignal): Promise<HostStatus>;
   profile(host: Host, provider: Provider, signal: AbortSignal): Promise<{ provider: Provider; slots: Slot[] }>;

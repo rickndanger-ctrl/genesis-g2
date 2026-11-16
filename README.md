@@ -2,7 +2,7 @@
 
 A standalone controller and conversation reader for Even Realities G2. It has its own app ID (`com.pybird.genesisg2`), pairing, browser storage, and Mac bridge. It does not replace Home, the Genesis iPhone controller, or Genesis Mini firmware.
 
-The native iPhone/iPad controller and Mac companion are maintained in the separate [Genesis Microcontroller App repository](https://github.com/rickndanger-ctrl/genesis-microcontroller-app). Use native build 18 or later and the updated companion on every paired Mac. G2 0.4.1 adds automatic connection recovery when Even changes its local address, alongside local Claude Code conversation reading; see [validation](VALIDATION.md) for deployment and physical-test status.
+The native iPhone/iPad controller and Mac companion are maintained in the separate [Genesis Microcontroller App repository](https://github.com/rickndanger-ctrl/genesis-microcontroller-app). G2 0.4.2 adds optional reading after the native controller locks, using native build 20 or later and the updated companion on every paired Mac. It retains automatic connection recovery and local Claude Code conversation reading. See [keep-reading validation](docs/KEEP_READING_VALIDATION.md) for this feature's checks and pending device acceptance, and [validation](VALIDATION.md) for earlier deployment and physical-test results.
 
 This preview opens existing Codex and Claude chats on a paired Mac. Its terminal-style view shows recent **YOU** and **CODEX** or **CLAUDE** messages above a separate draft box. Claude reading requires an identifiable local Claude Code session; ordinary Claude web chats are not supported by this reader. It keeps the six existing slot assignments and colors on the phone; G2 uses monochrome green with A1–A6 / C1–C6 labels. Longer text and older messages have separate pages.
 
@@ -42,13 +42,28 @@ Use native Genesis build 16 or later and the updated Mac companion. Build 17 add
 4. Hold the native microphone, speak, and release to review. The glasses can show the draft, but only **Send draft** in the native app sends it. A queued receipt is shown as queued, never as confirmed delivery.
 5. Use **Conversation** (**Reply** in build 16), **Draft**, **Home**, page arrows, and **Refresh** from the native follow panel. Conversation pages the recent exchange; Draft pages all words in the bottom draft box. Page 1 is latest, and the right arrow moves toward older text. A display acknowledgment shows which page the glasses accepted.
 
-One native device controls the display at a time. Taking over from another iPhone/iPad is explicit. Leaving the native app or changing computer/agent ends follow; the display lease also expires after 45 seconds without renewal. Transient display drafts are held in memory only, and expiry clears them. Original native drafts and Send receipts retain their existing storage behavior. Turning Follow on keeps that controller's screen awake until Follow stops.
+One native device controls the display at a time. Taking over from another iPhone/iPad is explicit. By default, leaving the native app or changing computer/agent ends follow; the display lease also expires after 45 seconds without renewal. The optional keep-reading mode below extends only reading of the selected conversation. Transient display drafts are held in memory only, and expiry clears them. Original native drafts and Send receipts retain their existing storage behavior. Turning Follow on keeps that controller's screen awake while Genesis is in the foreground; the lock button still locks it.
 
 Claude selection, draft preview, and native Send status can follow too. With the updated bridge, a locally indexed Claude Code chat also shows its conversation. The reader rejects duplicate active titles, mismatched accounts, missing local transcripts, and changed session identities instead of guessing. Its identity binding remains pinned until the G2 bridge restarts; intentionally replacing a same-named Claude session or changing accounts requires restarting that bridge. Use **Leave follow** inside Genesis G2 to return to its standalone controls; this does not steal ownership from the native device.
 
 When the current Mac has no active Follow session, G2 can discover exactly one active session on another explicitly paired Mac. It uses each Mac's own token, preserves an active current Mac, rejects ambiguous choices, and sends no chat-open or Send commands while discovering. A failed current connection does not trigger an automatic switch. Choosing **Leave follow** pauses this discovery until **Resume follow** or an explicit different-computer selection.
 
-A same-iPhone workflow requires the installed Even Beta. Inside Genesis G2, enable **Try background relay — Even Beta only**, then open the native Genesis app and enable Follow. In G2 0.4.1, this explicit choice is saved in Even’s native storage and restored when the app reopens; it defaults off until you enable it. A saved preference cannot prevent iOS from suspending Even. If an iPad still owns the display, either turn its Follow off first, or tap **Take over from iPad**, then **Follow this iPhone**. The native controller must stay open; leaving it intentionally releases Follow. Initial same-phone control is user-confirmed; phone lock is a separate pending test. [Follow protocol](FOLLOW_PROTOCOL.md) documents the display-only boundary.
+A same-iPhone workflow requires the installed Even Beta. Inside Genesis G2, enable **Try background relay — Even Beta only**, then open the native Genesis app and enable Follow. In G2 0.4.1 and later, this explicit choice is saved in Even’s native storage and restored when the app reopens; it defaults off until you enable it. A saved preference cannot prevent iOS from suspending Even. If an iPad still owns the display, either turn its Follow off first, or tap **Take over from iPad**, then **Follow this iPhone**. Without keep-reading enabled, the native controller must stay open; leaving it releases Follow. Initial same-phone control is user-confirmed; phone lock is a separate pending test. [Follow protocol](FOLLOW_PROTOCOL.md) documents the display-only boundary.
+
+### Keep reading when the controller locks
+
+This is an optional feature in G2 0.4.2, native Genesis build 20 or later, and companion 0.5.2-preview or later. **Locked-phone display updates are not yet physically verified.** Use the installed Even Beta; a developer QR preview does not establish background support.
+
+1. Inside Genesis G2 in Even, explicitly enable **Try background relay — Even Beta only**. This setting defaults off and is separate from the native controller's setting.
+2. In native Genesis, select the paired Mac, choose Codex or Claude, open the intended chat, and enable **Follow this controller**.
+3. Turn on **Keep reading when iPhone locks** in the Follow panel (**Keep reading when iPad locks** on iPad). It defaults off and requires the Mac to acknowledge a supported, selected chat before it is armed.
+4. Lock the controller. If the handoff and Even relay remain available, G2 shows **Reading while phone sleeps** and continues reading that exact conversation's latest page.
+
+Reading lasts for a fixed maximum of one hour. Repeated display checks, acknowledgments, or park requests cannot extend it. If iOS interrupts the handoff, an armed Mac can switch to reading when the ordinary 45-second lease expires; the one-hour deadline starts at that lease's expiry, not at a later reconnect.
+
+The microphone stops. The glasses' draft is cleared, while the unsent draft stays on the native iPhone/iPad for later review. Reading mode cannot Send, change chats, turn conversation pages, or take ownership. Reopen Genesis to resume controls. Turning Follow off, changing computer/agent, turning keep-reading off while parked, locking the Mac, restarting its companion, or reaching the deadline ends the session. Older companions retain ordinary foreground Follow without this option.
+
+An iPad controlling Genesis while the separate iPhone relay is locked is a different test: the iPad can remain the active owner without entering reading-only mode. Both arrangements need a physical test that shows **new conversation text during lock**, not just a retained old page. See the [validation checklist](docs/KEEP_READING_VALIDATION.md).
 
 Even can change its local `http://127.0.0.1:<port>` address when it restarts. In G2 0.4.1, the installed Even app saves a separate recovery credential in Even’s native storage and enrolls it with each paired Mac after a trusted connection. On a later restart, the existing pairing token plus that saved credential authorize only the new exact address. Read-only warm-up enrolls all paired Macs without switching chats. Recovery never replays a chat-open command whose response was lost.
 
@@ -117,7 +132,7 @@ Install the official `@evenrealities/evenhub-cli` if it is not already available
 
 ```sh
 node bridge/package-config.mjs
-evenhub pack .local/app.json dist -o .local/genesis-g2-0.4.1.ehpk --sdk-ver 0.0.16
+evenhub pack .local/app.json dist -o .local/genesis-g2-0.4.2.ehpk --sdk-ver 0.0.16
 ```
 
 `.local`, generated packages, build products, tokens and logs are excluded from Git. The shared `app.json` has an empty network whitelist deliberately; a private package must name its destination explicitly. The package contains no pairing token. Uploading, Beta distribution and public publication are separate from packaging.

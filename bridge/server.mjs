@@ -297,7 +297,7 @@ export function createBridge(config, dependencies={}) {
         const body=await readJSONBody(request,512);
         return json(response,200,await (enrolling ? originRecovery.enroll(body) : originRecovery.renew(origin,body)),cors);
       }
-      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.4.1'},cors);
+      if (target.pathname==='/healthz' && request.method==='GET') return json(response,200,{ok:true,app:'Genesis G2',version:'0.4.2'},cors);
       if (target.pathname.startsWith('/api/')) {
         if (request.method==='OPTIONS') {
           if (!origin || !['GET','POST'].includes(request.headers['access-control-request-method'])) fault(403,'preflight_denied','This request is not allowed.');
@@ -340,7 +340,7 @@ export function createBridge(config, dependencies={}) {
         }
         if (request.method==='GET' && target.pathname==='/api/status') {
           const source=await hostStatus();
-          return json(response,200,{version:'0.4.1',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
+          return json(response,200,{version:'0.4.2',host:{id:source.hostID,name:config.name ?? source.hostName},providers:source.providers.filter(p=>providers.has(p.id)).map(p=>({
             id:p.id,label:safeLabel(p.name,p.id),available:p.readiness==='ready' && p.capabilities?.includes('openChat')===true,
             canReadReply:p.readiness==='ready' && (p.id==='codex' || p.id==='claude' && Boolean(claudeReader)),
             reason:p.id==='claude' && !claudeReader ? 'Claude conversation reading is not enabled on this Mac.' : safeLabel(p.reason)

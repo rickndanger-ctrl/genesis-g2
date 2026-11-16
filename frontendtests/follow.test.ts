@@ -31,6 +31,105 @@ function portFixture() {
   return { createStartUpPageContainer: vi.fn(async () => 0), rebuildPageContainer: vi.fn(async () => true), textContainerUpgrade: vi.fn(async () => true) };
 }
 
+describe('keep-reading display boundary', () => {
+  const parked = (state: Partial<FollowSession['state']> = {}, outer: Partial<FollowSession> = {}) => session(state, {
+    supportsKeepReading: true, keepReading: true, readingOnly: true,
+    expiresAt: new Date(Date.now() + 3600000).toISOString(), ...outer,
+  });
+  it('preserves optional capability/mode flags without changing older snapshots', () => {
+    const old = session(); expect(followValue(old)).toEqual(old);
+    expect(followValue(parked())).toMatchObject({ supportsKeepReading: true, keepReading: true, readingOnly: true });
+    const inactiveValue = { ...inactive(), supportsKeepReading: true, keepReading: true, readingOnly: true, state: { draft: 'private' }, sourceID: 'private' };
+    expect(followValue(inactiveValue)).toEqual({ ...inactive(), supportsKeepReading: true });
+    expect(followValue(session({}, { supportsKeepReading: false, keepReading: false, readingOnly: false }))).toMatchObject({ supportsKeepReading: false, keepReading: false, readingOnly: false });
+  });
+  it('rejects malformed flags and any private or interactive state in reading-only mode', () => {
+    for (const key of ['supportsKeepReading', 'keepReading', 'readingOnly']) {
+      for (const value of ['true', 1, null, undefined]) {
+        expect(() => followValue({ ...parked(), [key]: value })).toThrow();
+        expect(() => followValue({ ...inactive(), [key]: value })).toThrow();
+      }
+    }
+    for (const changes of [{ draft: 'private draft' }, { draft: ' ' }, { recording: true }, { sendState: 'queued' }, { view: 'draft' }, { view: 'home' }, { page: 1 }, { chatID: null }]) {
+      expect(() => followValue(parked(changes as never))).toThrow();
+    }
+    expect(() => followValue(parked({}, { keepReading: false }))).toThrow();
+    expect(() => followValue(parked({}, { supportsKeepReading: false }))).toThrow();
+  });
+  it.each(['codex', 'claude'] as const)('shows the exact %s conversation with a reading status, not a composer prompt', async provider => {
+    const f = fixture(parked({ provider })); vi.mocked(f.api.reply).mockResolvedValue({ ...reply(), provider });
+    await f.store.refresh(); await f.store.pollFollow(); await tick();
+    const display = followPresentation(f.store.state)!;
+    expect(display.content).toContain(`${provider.toUpperCase()}: Correct assistant reply`);
+    expect(display.status).toBe('Reading while phone sleeps'); expect(display.footer).toContain('Reading while phone sleeps');
+    expect(display.footer.length).toBeLessThanOrEqual(42); expect(display.composer).toContain('READ ONLY');
+    expect(display.composer).not.toMatch(/Hold Talk|Review, then|press Send/);
+    expect(display.feedback?.payload).toMatchObject({ view: 'reply', renderedPage: 0 });
+    expect(f.api.open).not.toHaveBeenCalled();
+    f.store.state.status!.providers.find(item => item.id === provider)!.canReadReply = false;
+    const unavailable = followPresentation(f.store.state)!;
+    expect(unavailable.content).not.toContain('Correct assistant reply');
+    expect(unavailable.pages.join(' ')).not.toContain('Your draft stays below');
+    expect(unavailable.label).toBe('Reply unavailable');
+  });
+  it('enabling keep-reading while the controller is active does not hide its current draft', async () => {
+    const f = fixture(session({ view: 'draft', draft: 'Current words', recording: true }, { supportsKeepReading: true, keepReading: true, readingOnly: false }));
+    await f.store.refresh(); await f.store.pollFollow(); await tick();
+    expect(followPresentation(f.store.state)?.status).toBe('Voice input');
+    expect(followPresentation(f.store.state)?.composer).toContain('Current words');
+  });
+  it('clears an existing draft and rejects a same-chat read started before parking', async () => {
+    const f = fixture(session({ view: 'draft', draft: 'Private unsent words', recording: true }));
+    await f.store.refresh(); const old = deferred<Reply>(); const fresh = deferred<Reply>();
+    vi.mocked(f.api.reply).mockImplementationOnce(() => old.promise).mockImplementationOnce(() => fresh.promise);
+    await f.store.pollFollow(); const oldFrame = glassesFrame(f.store.state, host.name);
+    f.set(parked({}, { revision: 2 })); await f.store.pollFollow();
+    expect(JSON.stringify(f.store.state)).not.toContain('Private unsent');
+    expect(f.store.state.reply).toBeNull(); expect(glassesFrame(f.store.state, host.name).context).not.toBe(oldFrame.context);
+    old.resolve(reply('one', 'Stale pre-sleep response')); await tick(); expect(f.store.state.reply).toBeNull();
+    fresh.resolve(reply('one', 'Current reading response')); await tick();
+    expect(glassesFrame(f.store.state, host.name).content).toContain('Current reading response');
+    expect(glassesFrame(f.store.state, host.name).composer).not.toContain('Private');
+    expect(vi.mocked(f.api.reply).mock.calls[0][3].aborted).toBe(true); expect(f.api.open).not.toHaveBeenCalled();
+  });
+  it('resuming normal control discards a delayed parked read without losing the new draft', async () => {
+    const f = fixture(parked()); await f.store.refresh(); const old = deferred<Reply>();
+    vi.mocked(f.api.reply).mockImplementationOnce(() => old.promise);
+    await f.store.pollFollow(); f.set(session({ view: 'draft', draft: 'New active words' }, { revision: 2, keepReading: true, readingOnly: false }));
+    await f.store.pollFollow(); await tick(); old.resolve(reply('one', 'Late parked response')); await tick();
+    expect(f.store.state.reply?.text).toBe('Correct assistant reply');
+    expect(followPresentation(f.store.state)?.composer).toContain('New active words');
+    expect(followPresentation(f.store.state)?.status).not.toBe('Reading while phone sleeps');
+  });
+  it('continues bounded exact-chat reads and physical feedback without extending the parked expiry or running commands', async () => {
+    const now = Date.now(); const snapshot = parked(); const f = fixture(snapshot);
+    await f.store.refresh(); await f.store.pollFollow(); await tick();
+    const time = vi.spyOn(Date, 'now').mockReturnValue(now + 2500);
+    const next = deferred<Reply>(); vi.mocked(f.api.reply).mockImplementationOnce(() => next.promise);
+    await f.store.pollFollow(); await f.store.pollFollow(); expect(f.api.reply).toHaveBeenCalledTimes(2);
+    next.resolve(reply('one', 'Fresh while parked')); await tick();
+    const ack = glassesFrame(f.store.state, host.name).feedback!;
+    vi.mocked(f.api.followFeedback!).mockResolvedValue(parked({}, { expiresAt: new Date(now + 7200000).toISOString() }));
+    await f.store.acknowledgeFollow(ack.payload, ack.hostID, ack.sourceID);
+    expect(f.store.state.follow?.expiresAt).toBe(snapshot.expiresAt);
+    expect(vi.mocked(f.api.followFeedback!).mock.calls[0][1]).toEqual(ack.payload);
+    await f.store.openSlot(2); f.store.turnPage(1, 4); f.store.back();
+    expect(f.api.open).not.toHaveBeenCalled(); expect(f.store.state.selected?.id).toBe('one'); expect(f.store.state.page).toBe(0);
+    time.mockReturnValue(Date.parse(snapshot.expiresAt) + 1); f.store.expireFollow(); await f.store.pollFollow();
+    expect(f.store.state.follow).toBeNull(); expect(f.store.state.reply).toBeNull(); expect(f.store.state.selected).toBeNull();
+    expect(f.api.reply).toHaveBeenCalledTimes(2);
+  });
+  it('never acknowledges the old private frame after the same chat enters reading-only mode', async () => {
+    const f = fixture(session({ view: 'draft', draft: 'Private words' })); await f.store.refresh(); await f.store.pollFollow(); await tick();
+    const port = portFixture(); const create = deferred<number>(); port.createStartUpPageContainer.mockImplementationOnce(() => create.promise);
+    const controller = new GlassesController(f.store, () => {}, port); f.store.subscribe(state => controller.render(state));
+    f.set(parked({}, { revision: 2 })); await f.store.pollFollow(); await tick(); create.resolve(0); await tick();
+    expect(port.rebuildPageContainer).toHaveBeenCalled();
+    expect(vi.mocked(f.api.followFeedback!).mock.calls.every(call => call[1].revision === 2 && call[1].view === 'reply')).toBe(true);
+    expect(f.api.followFeedback).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('native follow transport', () => {
   it('uses only the fixed follow GET and display feedback POST paths with bound global fetch', async () => {
     const calls: { path: string; init: RequestInit }[] = [];

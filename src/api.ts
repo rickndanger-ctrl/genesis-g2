@@ -49,7 +49,10 @@ export function conversationValue(value: unknown): ConversationTurn[] {
 export function followValue(raw: unknown): FollowSnapshot {
   const d = object(raw);
   if (d.version !== 1 || typeof d.active !== 'boolean') throw new GatewayError('invalid_response', 'This display session is not supported.');
-  const base = { version: 1 as const, hostID: string(d.hostID, 500), revision: integer(d.revision, Number.MAX_SAFE_INTEGER) };
+  for (const key of ['supportsKeepReading', 'keepReading', 'readingOnly']) {
+    if (Object.hasOwn(d, key) && typeof d[key] !== 'boolean') throw new GatewayError('invalid_response', 'The native controller returned invalid reading state.');
+  }
+  const base = { version: 1 as const, hostID: string(d.hostID, 500), revision: integer(d.revision, Number.MAX_SAFE_INTEGER), ...(typeof d.supportsKeepReading === 'boolean' ? { supportsKeepReading: d.supportsKeepReading } : {}) };
   if (!d.active) return { ...base, active: false, ...(typeof d.supported === 'boolean' ? { supported: d.supported } : {}) };
   const s = object(d.state); const expiresAt = string(d.expiresAt, 100); const draft = string(s.draft, 32000);
   if (!['iPhone', 'iPad'].includes(String(d.sourceName)) || !Number.isFinite(Date.parse(expiresAt)) ||
@@ -57,6 +60,10 @@ export function followValue(raw: unknown): FollowSnapshot {
     typeof s.recording !== 'boolean' || Array.from(draft).length > 16000) throw new GatewayError('invalid_response', 'The native controller returned invalid display state.');
   const chatID = s.chatID == null ? null : string(s.chatID, 500);
   if (s.view !== 'home' && !chatID) throw new GatewayError('invalid_response', 'The display session has no selected chat.');
+  if ((d.keepReading === true && d.supportsKeepReading === false) || (d.readingOnly === true &&
+    (d.keepReading !== true || !chatID || s.view !== 'reply' || s.page !== 0 || draft !== '' || s.recording !== false || s.sendState !== 'none'))) {
+    throw new GatewayError('invalid_response', 'The native controller returned invalid reading state.');
+  }
   let feedback: Extract<FollowSnapshot, { active: true }>['feedback'];
   if (d.feedback != null) {
     const f = object(d.feedback); const pageCount = integer(f.pageCount, 1000); const renderedPage = integer(f.renderedPage, 999);
@@ -64,6 +71,8 @@ export function followValue(raw: unknown): FollowSnapshot {
     feedback = { revision: base.revision, pageCount, renderedPage, connected: f.connected };
   }
   return { ...base, active: true, sourceID: string(d.sourceID, 500), sourceName: d.sourceName as 'iPhone' | 'iPad', expiresAt,
+    ...(typeof d.keepReading === 'boolean' ? { keepReading: d.keepReading } : {}),
+    ...(typeof d.readingOnly === 'boolean' ? { readingOnly: d.readingOnly } : {}),
     ...(typeof d.chatTitle === 'string' ? { chatTitle: string(d.chatTitle, 2000) } : {}),
     ...(feedback ? { feedback } : {}),
     state: { provider: providerValue(s.provider), chatID, slotIndex: s.slotIndex == null ? null : integer(s.slotIndex, 5), view: s.view as DisplayState['view'], page: integer(s.page, 999), draft, recording: s.recording, sendState: s.sendState as DisplayState['sendState'], refreshNonce: integer(s.refreshNonce, Number.MAX_SAFE_INTEGER) } };

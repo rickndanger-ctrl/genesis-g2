@@ -76,6 +76,40 @@ test('expired and inactive follow sessions cannot leak a draft',async t=>{
     assert.deepEqual(await (await request('/api/follow')).json(),{supported:true,version:1,hostID,active:false,revision:2});
   }
 });
+test('keep-reading passes optional flags but only a sanitized fixed-chat display',async t=>{
+  for (const provider of ['codex','claude']) {
+    const source=followSnapshot({supportsKeepReading:true,keepReading:true,readingOnly:true,
+      expiresAt:new Date(Date.now()+3600000).toISOString(),state:{...displayState,provider},leaseID:'private-ownership-token'});
+    const {request,commands,reads}=await fixture(t,{follow:()=>new Response(JSON.stringify(source))});
+    const data=await (await request('/api/follow')).json();
+    assert.equal(data.supportsKeepReading,true);assert.equal(data.keepReading,true);assert.equal(data.readingOnly,true);
+    assert.equal(data.expiresAt,source.expiresAt);assert.deepEqual(data.state,source.state);assert.equal(data.leaseID,undefined);
+    const receipt={revision:2,provider,chatID:id,view:'reply',pageCount:2,renderedPage:0,connected:true};
+    const acknowledged=await (await request('/api/follow-feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(receipt)})).json();
+    assert.equal(acknowledged.expiresAt,source.expiresAt);
+    for (const operation of ['park','renew','claim']) assert.equal((await request('/api/follow',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation})})).status,404);
+    assert.equal(commands.length,0);assert.equal(reads.length,0);
+  }
+});
+test('keep-reading expiry retains only capability, never private drafts or active mode flags',async t=>{
+  for (const overrides of [{active:false},{expiresAt:new Date(Date.now()-1).toISOString()}]) {
+    const source=followSnapshot({supportsKeepReading:true,keepReading:true,readingOnly:true,
+      state:{...displayState,draft:'private words',recording:true},...overrides});
+    const {request}=await fixture(t,{follow:()=>new Response(JSON.stringify(source))});
+    assert.deepEqual(await (await request('/api/follow')).json(),{supported:true,version:1,hostID,active:false,revision:2,supportsKeepReading:true});
+  }
+});
+test('keep-reading rejects coercible flags and inconsistent parked state',async t=>{
+  const changes=[];
+  for (const key of ['supportsKeepReading','keepReading','readingOnly']) for (const value of ['true',1,null]) changes.push({[key]:value});
+  for (const patch of [{view:'draft'},{view:'home'},{page:1},{draft:'private'},{draft:' '},{recording:true},{sendState:'queued'},{chatID:null}]) changes.push({state:{...displayState,...patch}});
+  changes.push({keepReading:false},{supportsKeepReading:false});
+  for (const patch of changes) {
+    const source=followSnapshot({supportsKeepReading:true,keepReading:true,readingOnly:true,...patch});
+    const {request}=await fixture(t,{follow:()=>new Response(JSON.stringify(source))});
+    assert.equal((await request('/api/follow')).status,502);
+  }
+});
 test('follow rejects cross-host targets, invalid states and oversized drafts',async t=>{
   for (const changes of [{hostID:id},{sourceName:'untrusted'}, {state:{...displayState,page:-1}},
     {state:{...displayState,chatID:null}}, {state:{...displayState,draft:'x'.repeat(16001)}},

@@ -1,6 +1,6 @@
 # Genesis G2 native follow contract v1
 
-Implementation target: Genesis G2 0.4.0 and native Genesis build 16 or later. Existing native dictation and `/v1/commands` Send remain authoritative. Display updates never open a chat or send a prompt.
+Implementation target: Genesis G2 0.4.2 and native Genesis build 20 or later for optional reading after lock; older clients retain ordinary foreground Follow. Existing native dictation and `/v1/commands` Send remain authoritative. Display updates never open a chat or send a prompt.
 
 ## Mac companion (existing bearer authentication)
 
@@ -39,9 +39,27 @@ G2 polls while active, including hidden-page operation only in a real Beta build
 
 ## Native app
 
-Add an explicit Follow this controller switch, owner/takeover affordance, and reply/draft/previous-page/next-page/home/refresh controls. Keep native Hold Talk and explicit Send unchanged; optionally show a dedicated Send button in the follow panel calling the same guarded sendDraft method. Publish after confirmed chat changes. Debounce draft snapshots; serialize all session writes and guard response generation across host/provider changes. Heartbeat every 10 seconds while foreground. Stop/release on disabling, host change, or background; renew only when the user enables/returns to their explicitly selected session. An expired session cannot be silently stolen back from another device. Preserve the build-15 speech implementation, persisted drafts and Send receipt ledger.
+Add an explicit Follow this controller switch, owner/takeover affordance, and reply/draft/previous-page/next-page/home/refresh controls. Keep native Hold Talk and explicit Send unchanged; optionally show a dedicated Send button in the follow panel calling the same guarded sendDraft method. Publish after confirmed chat changes. Debounce draft snapshots; serialize all session writes and guard response generation across host/provider changes. Heartbeat every 10 seconds while foreground. Stop/release on disabling or host change; on background release unless the supported Keep reading handoff is armed; renew only when the user enables/returns to their explicitly selected session. An expired session cannot be silently stolen back from another device. Preserve the build-15 speech implementation, persisted drafts and Send receipt ledger.
 
-The iPad controller + Even foreground on the iPhone is the first physical acceptance setup. Same-iPhone native control requires a real Even Beta install and a test with Genesis foreground while Even is in the background; do not claim this from the QR preview. Locking the native controller intentionally releases Follow. Testing a locked relay phone while the iPad retains ownership is a separate reliability check.
+The iPad controller + Even foreground on the iPhone is the first physical acceptance setup. Same-iPhone native control requires a real Even Beta install and a test with Genesis foreground while Even is in the background; do not claim this from the QR preview. Without Keep reading enabled and acknowledged, locking the native controller releases Follow. The opt-in continuation is described below. Testing a locked relay phone while the iPad retains ownership is a separate reliability check.
+
+## Keep reading after phone lock (0.4.2)
+
+Companion 0.5.2-preview advertises optional `supportsKeepReading: true` on active and inactive snapshots. Active snapshots add `keepReading` (armed explicit preference) and `readingOnly` (Mac-maintained conversation). Older clients may omit these flags; supplied flags must be literal booleans.
+
+Three authenticated, owner-only operations extend the same closed endpoint:
+
+- `setReading`: `{operation:"setReading",sourceID:UUID,leaseID:UUID,enabled:Bool}`. Requires a confirmed nonempty chat when enabling. It arms continuation without extending the ordinary lease. Turning it off while reading ends that display session.
+- `park`: `{operation:"park",sourceID:UUID,leaseID:UUID}`. Requires an armed exact lease. It switches to reply page zero, clears display draft/recording/send status, and permits reading for one hour. Repeated park requests do not extend that hour.
+- `resume`: `{operation:"resume",sourceID:UUID,leaseID:UUID}`. Requires the exact current lease and always rotates it, resets sequence to zero, and restores the ordinary 45-second lease. Rotation fences late pre-lock updates and park requests. A lost resume response requires explicit Follow again; never replay automatically or take over a different owner.
+
+If an armed controller is suspended before `park` arrives, expiry of its 45-second lease performs the same sanitized conversion. Its one-hour deadline is anchored to that original expiry, never to a later poll. Feedback cannot renew either stage. Mac lock, remote disable, expiry, or companion restart ends the session. No reading session persists to disk.
+
+The native option defaults off and saves only the user's choice locally. It can be armed only for a supported Mac and a confirmed selected chat. Backgrounding stops microphone capture and preserves the local draft, cancels future draft writes, and attempts the serialized park operation. Foreground return checks ownership and resumes the exact lease before restoring native draft publishing. Selecting another host/provider or turning Follow off releases the old session. No action is sent by the reading handoff.
+
+G2 preserves its explicit background-relay opt-in, keeps fetching the exact conversation, and presents reading mode separately from native control. A same-chat mode transition invalidates old asynchronous reads and clears the previous draft. The glasses cannot Send, claim ownership, or extend reading expiry. A valid reading-only snapshot has a chat, `view:"reply"`, `draft:""`, `recording:false`, and `sendState:"none"`.
+
+The installed Even Beta must still be tested with the physical iPhone locked, including a newly displayed reply. A successful Mac handoff or a retained old glasses page alone does not prove continuous locked-phone relay.
 
 ## Cross-computer discovery (0.3.1)
 

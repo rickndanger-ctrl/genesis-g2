@@ -84,7 +84,7 @@ function renderChats() {
 }
 store.subscribe(state => {
   const host = store.host;
-  const following = Boolean(state.follow); const paused = store.manualControlsPaused; const follow = followPresentation(state);
+  const following = Boolean(state.follow); const readingOnly = state.follow?.readingOnly === true; const paused = store.manualControlsPaused; const follow = followPresentation(state);
   $('hosts').innerHTML = state.hosts.map(h => `<button data-host="${esc(h.id)}" class="${!state.demo && h.id === state.hostID ? 'active' : ''}"><span aria-hidden="true">▱</span>${esc(h.name)}</button>`).join('') + `<button id="host-add" class="${state.hosts.length ? 'add-host' : ''}" aria-label="Pair a computer">${state.hosts.length ? '+' : '+ Pair a computer'}</button>`;
   document.querySelectorAll<HTMLButtonElement>('[data-provider]').forEach(button => { const selected = button.dataset.provider === state.provider; button.classList.toggle('active', selected); button.setAttribute('aria-pressed', String(selected)); button.disabled = paused; });
   $('connection').innerHTML = `<i class="status-dot ${state.demo ? 'demo' : state.connected ? 'online' : ''}"></i>${state.demo ? 'Demo · No Mac connected' : state.busy && !state.connected ? 'Mac · Connecting…' : state.connected ? `Mac connected · ${esc(host?.name ?? '')}` : host ? `Mac offline · ${esc(host.name)}` : 'Mac · Not paired'}`;
@@ -98,11 +98,11 @@ store.subscribe(state => {
   $('notice').textContent = error ?? '';
   $('controller-agent').textContent = providerName(state.provider).toUpperCase();
   $('slots').innerHTML = state.slots.map(s => `<button class="slot ${state.selectedSlot === s.slot ? 'selected' : ''} ${s.kind !== 'chat' ? 'unassigned' : ''}" data-slot="${s.slot}" style="--slot-color:${SLOT_COLORS[s.slot - 1]}" aria-label="${esc(slotName(state.provider, s.slot) + ': ' + s.label)}" ${!state.connected || paused ? 'disabled' : ''}><div class="slot-top"><span class="slot-dot"></span><b>${slotName(state.provider, s.slot)}</b><span class="slot-corner">${s.kind === 'shortcut' ? '↗' : '⌁'}</span></div><span class="slot-title">${esc(s.label)}</span><span class="slot-bottom">${s.kind === 'shortcut' ? 'Shortcut · unavailable here' : s.kind === 'chat' ? 'Open conversation' : 'No chat assigned'}</span></button>`).join('');
-  $('follow-title').textContent = state.follow ? `Following ${state.follow.sourceName} · ${providerName(state.provider)}` : state.followEnabled ? 'Use Genesis on iPhone or iPad.' : 'Manual glasses controls';
-  $('follow-status').textContent = state.follow ? `${state.selected?.title ?? 'Home'} · Use the native controller to select chats, talk, send, and turn pages.` : state.followNotice ?? 'Enable Follow this controller in Genesis to show its selected chat, draft, and reply here.';
+  $('follow-title').textContent = readingOnly ? 'Reading while phone sleeps' : state.follow ? `Following ${state.follow.sourceName} · ${providerName(state.provider)}` : state.followEnabled ? 'Use Genesis on iPhone or iPad.' : 'Manual glasses controls';
+  $('follow-status').textContent = state.follow ? `${state.selected?.title ?? 'Home'} · ${readingOnly ? 'Reading this chat until the session expires. Reopen Genesis to resume its controls.' : 'Use the native controller to select chats, talk, send, and turn pages.'}` : state.followNotice ?? 'Enable Follow this controller in Genesis to show its selected chat, draft, and reply here.';
   $('follow-leave').hidden = !paused;
   $('follow-resume').hidden = state.followEnabled && !state.followEnded;
-  $('gesture-hint').textContent = following ? 'Following native Genesis · Glasses gestures are paused. Leave follow to use them.' : 'Swipe to move · Tap to open or page forward · Double-tap to go back';
+  $('gesture-hint').textContent = readingOnly ? 'Reading this chat · Glasses gestures are paused. Leave follow to use them.' : following ? 'Following native Genesis · Glasses gestures are paused. Leave follow to use them.' : 'Swipe to move · Tap to open or page forward · Double-tap to go back';
   document.querySelectorAll<HTMLButtonElement>('[data-gesture], [data-view], #glasses-menu').forEach(button => { button.disabled = paused; });
   const history = replyConversation(state.reply);
   const pages = follow?.pages ?? history.pages; const page = follow?.page ?? Math.min(state.page, pages.length - 1);
@@ -114,7 +114,7 @@ store.subscribe(state => {
   $('reply-text').textContent = follow?.content ?? (state.reply ? pages[page] : state.busy ? 'Opening your conversation…' : 'No assistant reply is available yet. Refresh to check again.');
   $('reader-composer').hidden = !following;
   $('reader-composer').textContent = follow?.composer ?? '';
-  $('reply-meta').textContent = follow ? `Controlled by ${state.follow!.sourceName} · ${follow.replyOnly ? 'Assistant reply only · ' : follow.truncated ? 'Recent conversation excerpt · ' : ''}Talk and Send stay in Genesis` : state.selected ? [state.demo ? 'Sample content only' : state.openStatus === 'requested' ? 'Open requested on computer' : state.openStatus === 'confirmed' ? 'Chat opened on computer' : '', history.replyOnly ? 'Assistant reply only' : history.truncated ? 'Recent conversation excerpt · Open the computer for full history' : ''].filter(Boolean).join(' · ') : '';
+  $('reply-meta').textContent = follow ? readingOnly ? 'Read only · Draft, Talk, Send, and page controls are paused.' : `Controlled by ${state.follow!.sourceName} · ${follow.replyOnly ? 'Assistant reply only · ' : follow.truncated ? 'Recent conversation excerpt · ' : ''}Talk and Send stay in Genesis` : state.selected ? [state.demo ? 'Sample content only' : state.openStatus === 'requested' ? 'Open requested on computer' : state.openStatus === 'confirmed' ? 'Chat opened on computer' : '', history.replyOnly ? 'Assistant reply only' : history.truncated ? 'Recent conversation excerpt · Open the computer for full history' : ''].filter(Boolean).join(' · ') : '';
   $('reader-controls').hidden = !state.selected && !following;
   $('page-indicator').textContent = follow?.pageLabel ?? `${page === 0 ? 'Latest' : 'Older'} ${page + 1} / ${pages.length}`;
   $<HTMLButtonElement>('page-prev').disabled = following || page === 0;

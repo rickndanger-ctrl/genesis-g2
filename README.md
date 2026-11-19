@@ -1,6 +1,6 @@
 # Genesis G2
 
-> **Experimental.** This is the Even Realities G2 glasses add-on for [Agent Micro Controller](https://github.com/rickndanger-ctrl/genesis-microcontroller-app). It is open source for people who want to build and run it themselves; it is not yet a published Even Hub app, and setup needs Tailscale on the phone and a bridge service on each Mac. Start with the [glasses guide](https://github.com/rickndanger-ctrl/genesis-microcontroller-app/blob/main/docs/GLASSES.md).
+> **Experimental.** This is the Even Realities G2 glasses add-on for [Agent Micro Controller](https://github.com/rickndanger-ctrl/genesis-microcontroller-app). It is open source for people who want to build and run it themselves; it is not yet a published Even Hub app, and setup needs Tailscale on the phone and a bridge service on each Mac. Start with the [glasses guide](https://rickndanger-ctrl.github.io/agent-micro-controller-site/glasses/).
 
 A standalone controller and conversation reader for Even Realities G2. It has its own app ID (`com.pybird.genesisg2`), pairing, browser storage, and Mac bridge. It does not replace Home, the Genesis iPhone controller, or Genesis Mini firmware.
 
